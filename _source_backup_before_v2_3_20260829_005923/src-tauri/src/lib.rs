@@ -2,8 +2,8 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use chrono::Utc;
 use rand_core::OsRng;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
@@ -431,8 +431,7 @@ fn delete_profile(app: tauri::AppHandle, profile_id: String, password: String) -
 #[tauri::command]
 fn reset_demo_profile(app: tauri::AppHandle) -> Result<(), String> {
     let base = app_config_dir(&app)?;
-    remove_sqlite_files(&base, "finance-demo.db")?;
-    remove_sqlite_files(&base, "finance-household-demo.db")
+    remove_sqlite_files(&base, "finance-demo.db")
 }
 
 /// Runs before the JS SQLite connection is opened. It creates one pre-upgrade

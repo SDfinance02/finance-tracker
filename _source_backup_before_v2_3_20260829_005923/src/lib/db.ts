@@ -8,7 +8,7 @@ import type {
 } from '../types';
 
 let dbPromise: Promise<Database> | null = null;
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 3;
 
 export async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -322,16 +322,6 @@ async function runMigrations(db: Database) {
     await exec(db, `CREATE TABLE IF NOT EXISTS profile_info (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
     await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (3,'V2.2 profile vault and separated ledgers')`);
     current = 3;
-  }
-
-  if (current < 4) {
-    await exec(db, `CREATE TABLE IF NOT EXISTS household_share_preferences (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )`);
-    await exec(db, `INSERT OR IGNORE INTO household_share_preferences(key,value) VALUES ('share_aggregates','1')`);
-    await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (4,'V2.3 household consolidation and aggregate sharing')`);
-    current = 4;
   }
 
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('schema_version',$1)`, [String(current)]);

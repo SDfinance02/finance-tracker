@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Landmark, ReceiptText, Inbox, PiggyBank, LineChart, Building2, ShieldCheck, UsersRound,
+  LayoutDashboard, Landmark, ReceiptText, Inbox, PiggyBank, LineChart, Building2, ShieldCheck,
   BarChart3, Calculator, PlugZap, Settings, Search, Moon, Sun, RefreshCw, WalletCards, Target, DownloadCloud,
   LockKeyhole, UserRound, Sparkles,
 } from 'lucide-react';
@@ -13,7 +13,6 @@ import { useProfileSession } from './ProfileSession';
 
 const nav = [
   ['Dashboard', '/', LayoutDashboard],
-  ['Household', '/household', UsersRound],
   ['Accounts', '/accounts', WalletCards],
   ['Transactions', '/transactions', ReceiptText],
   ['Inbox', '/inbox', Inbox],
@@ -34,7 +33,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [version, setVersion] = useState('2.3.0');
+  const [version, setVersion] = useState('2.2.0');
   const [updateVersion, setUpdateVersion] = useState<string|null>(null);
 
   useEffect(() => {

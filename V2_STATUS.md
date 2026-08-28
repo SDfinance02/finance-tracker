@@ -1,8 +1,12 @@
-# Finance Tracker — current status
+# Current status
 
-Current development version: **2.2.0**
-Database schema: **3**
+Finance Tracker V2.3.0 — Household.
 
-V2.2 is the Profiles & Security release. See `V2_2_STATUS.md` for the exact feature and security boundary.
+- React + TypeScript + Tauri + SQLite
+- Profiles: Personal / Partner / Demo
+- Touch ID + password profile gate
+- Signed updater infrastructure
+- Household consolidation with shared ownership and aggregate privacy boundary
+- Schema version 4
 
-The application remains local-first: each profile has a separate SQLite ledger under the same persistent macOS Application Support vault. The existing V2/V2.1 `finance-v2.db` remains the Personal ledger.
+Next planned module: Protection / Insurance management, after the signed updater path is verified end-to-end.

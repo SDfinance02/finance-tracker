@@ -60,16 +60,9 @@ export function SettingsPage(){
       setStatus(`SQLite backup created for ${profile.name}: ${path}`);
     }catch(e){setStatus(`Backup failed: ${String(e)}`)}
   };
-  const backupHousehold=async()=>{
-    try{
-      const dbFilename=profile.kind==='demo'?'finance-household-demo.db':'finance-household.db';
-      const path=await invoke<string>('create_database_backup',{dbFilename});
-      setStatus(`Household backup created: ${path}`);
-    }catch(e){setStatus(`Household backup failed: ${String(e)}. Open Household once, then try again.`)}
-  };
   const exportJson=async()=>{
     const data=await exportAllData();
-    downloadText(`finance-${profile.id}-export-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify({version:2.3,profile:{id:profile.id,name:profile.name,kind:profile.kind},exportedAt:new Date().toISOString(),data},null,2));
+    downloadText(`finance-${profile.id}-export-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify({version:2.2,profile:{id:profile.id,name:profile.name,kind:profile.kind},exportedAt:new Date().toISOString(),data},null,2));
     setStatus('Full JSON export prepared. Your SQLite database remains unchanged.');
   };
   const checkUpdates=async()=>{
@@ -131,10 +124,10 @@ export function SettingsPage(){
         {profile.kind!=='demo' ? <div className="security-actions">
           <div className="security-action"><div><strong>{biometry.type==='Unavailable'?'Touch ID':biometry.type}</strong><span>{biometricEnabled?'Enabled for quick unlock':'Password remains the fallback'}</span></div><button className={`toggle-button ${biometricEnabled?'on':''}`} disabled={!biometry.isAvailable} onClick={toggleBiometry}><span/></button></div>
           <button className="btn" onClick={()=>setPasswordOpen(true)}>Change profile password</button>
-          <div className="notice">V2.3 protects access inside Finance Tracker and keeps profiles in separate database files. The SQLite files are not yet SQLCipher-encrypted at rest; keep macOS FileVault enabled. Full database encryption is the next security hardening step.</div>
+          <div className="notice">V2.2 protects access inside Finance Tracker and keeps profiles in separate database files. The SQLite files are not yet SQLCipher-encrypted at rest; keep macOS FileVault enabled. Full database encryption is the next security hardening step.</div>
         </div> : <div className="security-actions"><div className="notice">Safe to show colleagues. To reset the fictional portfolio, lock this profile and use the reset button on the profile chooser. This avoids modifying an open SQLite file.</div><button className="btn" onClick={lock}><LockKeyhole size={14}/>Lock & switch profile</button></div>}
       </Card>
-      <Card title="App updates" subtitle="V2.3 uses the signed update channel so future releases can install without replacing your databases.">
+      <Card title="App updates" subtitle="V2.2 keeps the signed update foundation so future releases can install without replacing your databases.">
         <div className="settings-update-row">
           <div className="settings-update-icon"><RefreshCw size={20}/></div>
           <div style={{flex:1}}>
@@ -162,7 +155,7 @@ export function SettingsPage(){
 
     <div className="grid two" style={{marginBottom:16}}>
       <Card title="General"><div className="form-grid"><Field label="Base currency"><input className="input" value={currency} maxLength={3} onChange={e=>setCurrency(e.target.value.toUpperCase())}/></Field><div className="field"><span className="field-label">Save</span><button className="btn" onClick={saveCurrency}>Save currency</button></div></div><div style={{height:14}}/><div className="notice">V2 currently assumes the main dashboard can display recorded values together. For a multi-currency portfolio, use EUR-denominated values until the FX conversion module is added.</div></Card>
-      <Card title="Backups & portability"><div className="grid three"><button className="btn primary" onClick={backup}><DatabaseBackup size={15}/>Profile backup</button><button className="btn" onClick={backupHousehold}><DatabaseBackup size={15}/>Household backup</button><button className="btn" onClick={exportJson}><Download size={15}/>Export profile JSON</button></div><div style={{height:12}}/><div className="mini"><ShieldCheck size={13} style={{verticalAlign:'-2px',marginRight:5}}/>A pre-upgrade backup is also created automatically once per app version before database migrations run.</div>{locations.map(x=><div className="mini" style={{marginTop:4,wordBreak:'break-all'}} key={x}>{x}</div>)}</Card>
+      <Card title="Backups & portability"><div className="grid two"><button className="btn primary" onClick={backup}><DatabaseBackup size={15}/>Create SQLite backup</button><button className="btn" onClick={exportJson}><Download size={15}/>Export all data JSON</button></div><div style={{height:12}}/><div className="mini"><ShieldCheck size={13} style={{verticalAlign:'-2px',marginRight:5}}/>A pre-upgrade backup is also created automatically once per app version before database migrations run.</div>{locations.map(x=><div className="mini" style={{marginTop:4,wordBreak:'break-all'}} key={x}>{x}</div>)}</Card>
     </div>
 
     <Card title="Categories" subtitle="The review inbox learns merchant rules separately; categories are the clean reporting layer." actions={<button className="btn" onClick={()=>setOpen(true)}><Plus size={14}/>Category</button>}>

@@ -7,12 +7,21 @@ jobs:
   publish-macos:
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            label: Apple Silicon
+          - target: x86_64-apple-darwin
+            label: Intel
+
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
@@ -33,7 +42,7 @@ jobs:
       - name: Generate application icons
         run: npm run tauri icon src-tauri/icons/app-icon.png
 
-      - name: Build signed universal macOS updater and publish release
+      - name: Build signed updater artifacts and publish release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -45,10 +54,9 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: 'Finance Tracker v__VERSION__'
-          releaseBody: 'Finance Tracker v2.3 adds Household: consolidated personal + partner wealth, shared ownership, combined cashflow, asset allocation and household snapshots. Existing local finance data is preserved.'
+          releaseBody: 'Signed Finance Tracker update. Existing local finance data is preserved.'
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
-          retryAttempts: 3
-          args: --config src-tauri/tauri.release.conf.json --target universal-apple-darwin
+          args: --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }}
