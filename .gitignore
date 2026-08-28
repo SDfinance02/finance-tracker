@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src-tauri/target/
+.DS_Store
+*.log
+*.key
+.env
+.env.*
+_source_backup_before_v2_1_*/
