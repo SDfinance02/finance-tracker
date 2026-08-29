@@ -4,11 +4,11 @@ import { getActiveProfile, type Profile } from './profiles';
 import type {
   Account, Budget, Category, CategorizationRule, Connection, Debtor, Dividend, InboxItem,
   InvestmentTarget, Liability, Pension, Property, RecurringExpense, Security, Snapshot, Trade,
-  Transaction, InsurancePolicy, InsuranceClaim,
+  Transaction, InsurancePolicy, InsuranceClaim, FutureScenario, FutureEvent,
 } from '../types';
 
 let dbPromise: Promise<Database> | null = null;
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -285,6 +285,7 @@ async function initialize(db: Database, profile: Profile) {
   await exec(db, `INSERT OR REPLACE INTO profile_info(key,value) VALUES ('profile_name',$1)`, [profile.name]);
   await exec(db, `INSERT OR REPLACE INTO profile_info(key,value) VALUES ('profile_kind',$1)`, [profile.kind]);
   if (profile.kind === 'demo') { await seedDemo(db); await seedProtectionDemo(db); }
+  await seedFutureDefaults(db, profile.kind === 'demo');
 }
 
 async function runMigrations(db: Database) {
@@ -375,6 +376,52 @@ async function runMigrations(db: Database) {
     await exec(db, 'CREATE INDEX IF NOT EXISTS idx_insurance_claims_policy ON insurance_claims(policy_id, incident_date)');
     await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (5,'V2.4 protection: insurance policies and claims')`);
     current = 5;
+  }
+
+
+  if (current < 6) {
+    await exec(db, `CREATE TABLE IF NOT EXISTS future_scenarios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      scope TEXT NOT NULL DEFAULT 'profile',
+      is_baseline INTEGER NOT NULL DEFAULT 0,
+      horizon_years INTEGER NOT NULL DEFAULT 30,
+      annual_return_pct REAL NOT NULL DEFAULT 6,
+      cash_return_pct REAL NOT NULL DEFAULT 1.5,
+      inflation_pct REAL NOT NULL DEFAULT 2,
+      income_growth_pct REAL NOT NULL DEFAULT 2,
+      expense_growth_pct REAL NOT NULL DEFAULT 0,
+      property_growth_pct REAL NOT NULL DEFAULT 2,
+      pension_growth_pct REAL NOT NULL DEFAULT 4,
+      surplus_to_invest_pct REAL NOT NULL DEFAULT 80,
+      withdrawal_rate_pct REAL NOT NULL DEFAULT 4,
+      include_pensions_in_fi INTEGER NOT NULL DEFAULT 0,
+      baseline_income_override REAL,
+      baseline_expense_override REAL,
+      pension_monthly_contribution REAL NOT NULL DEFAULT 0,
+      auto_fund_deficits INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS future_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scenario_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      amount REAL NOT NULL DEFAULT 0,
+      annual_growth_pct REAL NOT NULL DEFAULT 0,
+      details_json TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(scenario_id) REFERENCES future_scenarios(id) ON DELETE CASCADE
+    )`);
+    await exec(db, 'CREATE INDEX IF NOT EXISTS idx_future_events_scenario_date ON future_events(scenario_id,start_date)');
+    await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (6,'V2.5 future: deterministic scenarios, life events and FI planning')`);
+    current = 6;
   }
 
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('schema_version',$1)`, [String(current)]);
@@ -494,6 +541,54 @@ async function seedProtectionDemo(db: Database) {
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('protection_demo_seed_version','1')`);
 }
 
+
+async function seedFutureDefaults(db: Database, demo: boolean) {
+  const scenarios = await db.select<Array<{ id:number; name:string }>>('SELECT id,name FROM future_scenarios ORDER BY id');
+  let baselineId = scenarios[0]?.id;
+  if (!baselineId) {
+    const result = await exec(db, `INSERT INTO future_scenarios(name,description,scope,is_baseline,horizon_years,annual_return_pct,cash_return_pct,inflation_pct,income_growth_pct,expense_growth_pct,property_growth_pct,pension_growth_pct,surplus_to_invest_pct,withdrawal_rate_pct,include_pensions_in_fi,pension_monthly_contribution,auto_fund_deficits)
+      VALUES($1,$2,$3,1,35,6,1.5,2,2,0,2,4,80,4,0,0,1)`, [demo ? 'Base plan' : 'Base plan', demo ? 'Fictional household baseline for demonstrations.' : 'Your default deterministic projection.', demo ? 'household' : 'profile']);
+    baselineId = Number(result.lastInsertId);
+  }
+  if (!demo) return;
+
+  const seeded = await db.select<Array<{ value:string }>>(`SELECT value FROM settings WHERE key='future_demo_seed_version'`);
+  if (seeded[0]?.value === '1') return;
+
+  const addMonthsIso = (months:number) => {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()+months);
+    return d.toISOString().slice(0,10);
+  };
+
+  if (baselineId) {
+    await exec(db, `UPDATE future_scenarios SET scope='household',horizon_years=35,annual_return_pct=5.8,surplus_to_invest_pct=82,withdrawal_rate_pct=4 WHERE id=$1`, [baselineId]);
+    await exec(db, `INSERT INTO future_events(scenario_id,name,event_type,start_date,end_date,amount,annual_growth_pct,notes) VALUES
+      ($1,'Career step-up','monthly_income_change',$2,NULL,850,1.5,'Fictional recurring household income increase'),
+      ($1,'Education years','monthly_expense_change',$3,$4,650,2,'Fictional temporary family expense'),
+      ($1,'Home improvements','one_off_expense',$5,NULL,42000,0,'Fictional renovation budget'),
+      ($1,'Retirement income','retirement',$6,NULL,3600,1.5,'Fictional replacement monthly income after retirement')`, [baselineId,addMonthsIso(18),addMonthsIso(42),addMonthsIso(126),addMonthsIso(72),addMonthsIso(270)]);
+  }
+
+  const homeResult = await exec(db, `INSERT INTO future_scenarios(name,description,scope,is_baseline,horizon_years,annual_return_pct,cash_return_pct,inflation_pct,income_growth_pct,expense_growth_pct,property_growth_pct,pension_growth_pct,surplus_to_invest_pct,withdrawal_rate_pct,include_pensions_in_fi,pension_monthly_contribution,auto_fund_deficits)
+    VALUES('Larger home','Buy a larger family home while keeping long-term investing active.','household',0,35,5.8,1.5,2,2,0,2,4,75,4,0,0,1)`);
+  const homeId = Number(homeResult.lastInsertId);
+  if (homeId) {
+    await exec(db, `INSERT INTO future_events(scenario_id,name,event_type,start_date,amount,details_json,notes) VALUES($1,'Buy larger home','home_purchase',$2,950000,$3,'Fictional purchase including mortgage')`, [homeId,addMonthsIso(36),JSON.stringify({purchasePrice:950000,downPayment:210000,closingCosts:52000,mortgagePrincipal:740000,interestPct:3.2,termYears:25,replacedMonthlyHousingCost:1650})]);
+    await exec(db, `INSERT INTO future_events(scenario_id,name,event_type,start_date,end_date,amount,annual_growth_pct,notes) VALUES($1,'Career step-up','monthly_income_change',$2,NULL,850,1.5,'Fictional recurring household income increase'),($1,'Retirement income','retirement',$3,NULL,3600,1.5,'Fictional retirement income')`, [homeId,addMonthsIso(18),addMonthsIso(270)]);
+  }
+
+  const freedomResult = await exec(db, `INSERT INTO future_scenarios(name,description,scope,is_baseline,horizon_years,annual_return_pct,cash_return_pct,inflation_pct,income_growth_pct,expense_growth_pct,property_growth_pct,pension_growth_pct,surplus_to_invest_pct,withdrawal_rate_pct,include_pensions_in_fi,pension_monthly_contribution,auto_fund_deficits)
+    VALUES('Early freedom','Higher savings rate and an earlier work exit.','household',0,35,6.2,1.5,2,2,0,2,4,92,3.75,0,0,1)`);
+  const freedomId = Number(freedomResult.lastInsertId);
+  if (freedomId) {
+    await exec(db, `INSERT INTO future_events(scenario_id,name,event_type,start_date,amount,annual_growth_pct,notes) VALUES
+      ($1,'Career step-up','monthly_income_change',$2,1100,1.5,'Fictional income growth'),
+      ($1,'Early retirement','retirement',$3,2500,1.5,'Fictional replacement income from investments/pension sources')`, [freedomId,addMonthsIso(18),addMonthsIso(204)]);
+  }
+
+  await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES('future_demo_seed_version','1')`);
+}
+
 export async function select<T>(sql: string, bind: unknown[] = []): Promise<T[]> {
   const db = await getDb();
   return db.select<T[]>(sql, bind);
@@ -542,6 +637,8 @@ export const repo = {
   async connections(): Promise<Connection[]> { return select<Connection>('SELECT * FROM connections ORDER BY kind, name'); },
   async insurancePolicies(): Promise<InsurancePolicy[]> { return select<InsurancePolicy>(`SELECT * FROM insurance_policies ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, COALESCE(renewal_date,'9999-12-31'), name`); },
   async insuranceClaims(): Promise<InsuranceClaim[]> { return select<InsuranceClaim>(`SELECT c.*, p.name policy_name FROM insurance_claims c LEFT JOIN insurance_policies p ON p.id=c.policy_id ORDER BY incident_date DESC, c.id DESC`); },
+  async futureScenarios(): Promise<FutureScenario[]> { return select<FutureScenario>('SELECT * FROM future_scenarios ORDER BY is_baseline DESC, id'); },
+  async futureEvents(scenarioId?: number): Promise<FutureEvent[]> { return select<FutureEvent>(`SELECT * FROM future_events ${scenarioId ? 'WHERE scenario_id=$1' : ''} ORDER BY start_date,id`, scenarioId ? [scenarioId] : []); },
   async setting(key: string, fallback = ''): Promise<string> {
     const rows = await select<{ value: string }>('SELECT value FROM settings WHERE key=$1', [key]);
     return rows[0]?.value ?? fallback;
@@ -559,7 +656,7 @@ export async function exportAllData() {
   const tables = [
     'settings','categories','accounts','transactions','categorization_rules','import_batches','inbox','budgets',
     'recurring_expenses','securities','trades','dividends','investment_targets','price_history','properties','pensions',
-    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','schema_migrations','app_metadata','profile_info',
+    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','future_scenarios','future_events','schema_migrations','app_metadata','profile_info',
   ];
   const output: Record<string, unknown[]> = {};
   for (const table of tables) output[table] = await select<Record<string, unknown>>(`SELECT * FROM ${table}`);

@@ -182,3 +182,93 @@ export interface HouseholdSnapshot {
   shared_nw: number;
   total_nw: number;
 }
+
+export type FutureScope = 'profile' | 'household';
+export type FutureEventType =
+  | 'one_off_income'
+  | 'one_off_expense'
+  | 'monthly_income_change'
+  | 'monthly_expense_change'
+  | 'investment_lump_sum'
+  | 'home_purchase'
+  | 'retirement';
+
+export interface FutureScenario {
+  id: number;
+  name: string;
+  description?: string | null;
+  scope: FutureScope | string;
+  is_baseline: number;
+  horizon_years: number;
+  annual_return_pct: number;
+  cash_return_pct: number;
+  inflation_pct: number;
+  income_growth_pct: number;
+  expense_growth_pct: number;
+  property_growth_pct: number;
+  pension_growth_pct: number;
+  surplus_to_invest_pct: number;
+  withdrawal_rate_pct: number;
+  include_pensions_in_fi: number;
+  baseline_income_override?: number | null;
+  baseline_expense_override?: number | null;
+  pension_monthly_contribution: number;
+  auto_fund_deficits: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FutureEvent {
+  id: number;
+  scenario_id: number;
+  name: string;
+  event_type: FutureEventType | string;
+  start_date: string;
+  end_date?: string | null;
+  amount: number;
+  annual_growth_pct: number;
+  details_json?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FutureStartingPoint {
+  cash: number;
+  investments: number;
+  realEstate: number;
+  pensions: number;
+  receivables: number;
+  liabilities: number;
+  monthlyIncome: number;
+  monthlyExpenses: number;
+  existingDebtMonthlyPayment: number;
+  existingDebtInterestPct: number;
+  sourceLabel: string;
+}
+
+export interface FutureProjectionPoint {
+  date: string;
+  monthIndex: number;
+  cash: number;
+  investments: number;
+  realEstate: number;
+  pensions: number;
+  receivables: number;
+  liabilities: number;
+  investableAssets: number;
+  netWorth: number;
+  income: number;
+  expenses: number;
+  savings: number;
+}
+
+export interface FutureProjectionResult {
+  points: FutureProjectionPoint[];
+  fiDate: string | null;
+  horizonNetWorth: number;
+  horizonInvestable: number;
+  minimumCash: number;
+  cumulativeSavings: number;
+  startingNetWorth: number;
+}

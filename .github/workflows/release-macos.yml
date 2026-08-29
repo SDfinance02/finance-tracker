@@ -45,7 +45,7 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: 'Finance Tracker v__VERSION__'
-          releaseBody: 'Finance Tracker v2.4 adds Protection: insurance policy register, premium overview, renewal calendar, coverage map, claims log and policy-document references. Existing local finance data is preserved.'
+          releaseBody: 'Finance Tracker v2.5 adds Future: deterministic wealth projections, editable assumptions, life events, home-purchase and mortgage modelling, retirement/FI estimates, household scope and side-by-side scenario comparison. Existing local finance data is preserved.'
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
