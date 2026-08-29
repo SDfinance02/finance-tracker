@@ -8,5 +8,5 @@ src-tauri/target/
 .env.*
 _source_backup_before_v2_1_*/
 
-# Local Finance Tracker source checkpoints
+# Local source checkpoints
 _source_backup_before_*/

@@ -1,12 +1,6 @@
-# Current status
+# Finance Tracker status
 
-Finance Tracker V2.3.0 — Household.
+Current release: **V2.4.0**
+Current profile schema: **v5**
 
-- React + TypeScript + Tauri + SQLite
-- Profiles: Personal / Partner / Demo
-- Touch ID + password profile gate
-- Signed updater infrastructure
-- Household consolidation with shared ownership and aggregate privacy boundary
-- Schema version 4
-
-Next planned module: Protection / Insurance management, after the signed updater path is verified end-to-end.
+Major modules: Dashboard, Household, Accounts, Transactions, Inbox, Budget, Planning, Investments, Real estate, Pensions & debt, Protection, Analytics, CGT planner, Connections, Profiles/Security and signed app updates.

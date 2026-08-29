@@ -13,6 +13,7 @@ import { Planning } from './pages/Planning';
 import { Investments } from './pages/Investments';
 import { RealEstate } from './pages/RealEstate';
 import { Pensions } from './pages/Pensions';
+import { Protection } from './pages/Protection';
 import { Analytics } from './pages/Analytics';
 import { TaxPage } from './pages/Tax';
 import { Connections } from './pages/Connections';
@@ -47,6 +48,7 @@ export default function App() {
     <Route path="/investments" element={<Investments/>}/>
     <Route path="/real-estate" element={<RealEstate/>}/>
     <Route path="/pensions" element={<Pensions/>}/>
+    <Route path="/protection" element={<Protection/>}/>
     <Route path="/analytics" element={<Analytics/>}/>
     <Route path="/tax" element={<TaxPage/>}/>
     <Route path="/connections" element={<Connections/>}/>

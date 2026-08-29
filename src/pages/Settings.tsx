@@ -131,10 +131,10 @@ export function SettingsPage(){
         {profile.kind!=='demo' ? <div className="security-actions">
           <div className="security-action"><div><strong>{biometry.type==='Unavailable'?'Touch ID':biometry.type}</strong><span>{biometricEnabled?'Enabled for quick unlock':'Password remains the fallback'}</span></div><button className={`toggle-button ${biometricEnabled?'on':''}`} disabled={!biometry.isAvailable} onClick={toggleBiometry}><span/></button></div>
           <button className="btn" onClick={()=>setPasswordOpen(true)}>Change profile password</button>
-          <div className="notice">V2.3 protects access inside Finance Tracker and keeps profiles in separate database files. The SQLite files are not yet SQLCipher-encrypted at rest; keep macOS FileVault enabled. Full database encryption is the next security hardening step.</div>
+          <div className="notice">Finance Tracker protects access inside the app and keeps profiles in separate database files. The SQLite files are not yet SQLCipher-encrypted at rest; keep macOS FileVault enabled. Full database encryption is the next security hardening step.</div>
         </div> : <div className="security-actions"><div className="notice">Safe to show colleagues. To reset the fictional portfolio, lock this profile and use the reset button on the profile chooser. This avoids modifying an open SQLite file.</div><button className="btn" onClick={lock}><LockKeyhole size={14}/>Lock & switch profile</button></div>}
       </Card>
-      <Card title="App updates" subtitle="V2.3 uses the signed update channel so future releases can install without replacing your databases.">
+      <Card title="App updates" subtitle="The signed update channel installs future releases without replacing your local profile databases.">
         <div className="settings-update-row">
           <div className="settings-update-icon"><RefreshCw size={20}/></div>
           <div style={{flex:1}}>

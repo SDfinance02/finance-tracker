@@ -68,6 +68,48 @@ export interface Snapshot { id: number; date: string; cash: number; investments:
 export interface InboxItem { id: number; raw_json?: string | null; date: string; description: string; amount: number; account_hint?: string | null; suggested_category_id?: number | null; confidence: number; source: string; external_id?: string | null; status: string; }
 export interface CategorizationRule { id: number; pattern: string; match_field: string; category_id: number; category_name?: string; transaction_type: TransactionType; priority: number; active: number; }
 export interface Connection { id: number; kind: string; provider: string; name: string; status: string; details_json?: string | null; last_sync_at?: string | null; }
+
+export type InsuranceStatus = 'active' | 'pending' | 'expired' | 'cancelled';
+export type InsurancePremiumFrequency = 'Monthly' | 'Quarterly' | 'Semiannual' | 'Annual' | 'One-off';
+
+export interface InsurancePolicy {
+  id: number;
+  name: string;
+  category: string;
+  provider: string;
+  policy_number?: string | null;
+  insured_for: string;
+  status: InsuranceStatus | string;
+  premium_amount: number;
+  premium_frequency: InsurancePremiumFrequency | string;
+  start_date?: string | null;
+  renewal_date?: string | null;
+  end_date?: string | null;
+  coverage_amount: number;
+  deductible: number;
+  beneficiary?: string | null;
+  broker_name?: string | null;
+  broker_contact?: string | null;
+  auto_renewal: number;
+  document_ref?: string | null;
+  notes?: string | null;
+  updated_at: string;
+}
+
+export interface InsuranceClaim {
+  id: number;
+  policy_id?: number | null;
+  policy_name?: string | null;
+  incident_date: string;
+  claim_reference?: string | null;
+  description: string;
+  claimed_amount: number;
+  reimbursed_amount: number;
+  status: string;
+  notes?: string | null;
+  updated_at: string;
+}
+
 export interface MarketQuote { symbol: string; price: number; previousClose?: number | null; dayChangePct?: number | null; currency?: string | null; high52w?: number | null; timestamp: string; provider: string; error?: string | null; }
 
 export interface Position {

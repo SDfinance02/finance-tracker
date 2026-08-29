@@ -3,7 +3,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Landmark, ReceiptText, Inbox, PiggyBank, LineChart, Building2, ShieldCheck, UsersRound,
-  BarChart3, Calculator, PlugZap, Settings, Search, Moon, Sun, RefreshCw, WalletCards, Target, DownloadCloud,
+  BarChart3, Calculator, PlugZap, Settings, Search, Moon, Sun, RefreshCw, WalletCards, Target, DownloadCloud, Umbrella,
   LockKeyhole, UserRound, Sparkles,
 } from 'lucide-react';
 import { Modal } from './Modal';
@@ -22,6 +22,7 @@ const nav = [
   ['Investments', '/investments', LineChart],
   ['Real estate', '/real-estate', Building2],
   ['Pensions & debt', '/pensions', ShieldCheck],
+  ['Protection', '/protection', Umbrella],
   ['Analytics', '/analytics', BarChart3],
   ['CGT planner', '/tax', Calculator],
   ['Connections', '/connections', PlugZap],
@@ -34,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [version, setVersion] = useState('2.3.0');
+  const [version, setVersion] = useState('2.4.0');
   const [updateVersion, setUpdateVersion] = useState<string|null>(null);
 
   useEffect(() => {

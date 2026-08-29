@@ -18,7 +18,7 @@ if [ ! -f "src-tauri/icons/icon.icns" ]; then
   npm run tauri icon src-tauri/icons/app-icon.png >/dev/null
 fi
 
-echo "Starting Finance Tracker V2.2..."
+echo "Starting Finance Tracker V2.4..."
 echo "Keep this Terminal window open while using development mode."
 echo "Press Control+C here to stop the app."
 echo ""

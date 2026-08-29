@@ -4,11 +4,11 @@ import { getActiveProfile, type Profile } from './profiles';
 import type {
   Account, Budget, Category, CategorizationRule, Connection, Debtor, Dividend, InboxItem,
   InvestmentTarget, Liability, Pension, Property, RecurringExpense, Security, Snapshot, Trade,
-  Transaction,
+  Transaction, InsurancePolicy, InsuranceClaim,
 } from '../types';
 
 let dbPromise: Promise<Database> | null = null;
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -284,7 +284,7 @@ async function initialize(db: Database, profile: Profile) {
   await exec(db, `INSERT OR REPLACE INTO profile_info(key,value) VALUES ('profile_id',$1)`, [profile.id]);
   await exec(db, `INSERT OR REPLACE INTO profile_info(key,value) VALUES ('profile_name',$1)`, [profile.name]);
   await exec(db, `INSERT OR REPLACE INTO profile_info(key,value) VALUES ('profile_kind',$1)`, [profile.kind]);
-  if (profile.kind === 'demo') await seedDemo(db);
+  if (profile.kind === 'demo') { await seedDemo(db); await seedProtectionDemo(db); }
 }
 
 async function runMigrations(db: Database) {
@@ -332,6 +332,49 @@ async function runMigrations(db: Database) {
     await exec(db, `INSERT OR IGNORE INTO household_share_preferences(key,value) VALUES ('share_aggregates','1')`);
     await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (4,'V2.3 household consolidation and aggregate sharing')`);
     current = 4;
+  }
+
+  if (current < 5) {
+    await exec(db, `CREATE TABLE IF NOT EXISTS insurance_policies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'Other',
+      provider TEXT NOT NULL DEFAULT '',
+      policy_number TEXT,
+      insured_for TEXT NOT NULL DEFAULT 'Personal',
+      status TEXT NOT NULL DEFAULT 'active',
+      premium_amount REAL NOT NULL DEFAULT 0,
+      premium_frequency TEXT NOT NULL DEFAULT 'Annual',
+      start_date TEXT,
+      renewal_date TEXT,
+      end_date TEXT,
+      coverage_amount REAL NOT NULL DEFAULT 0,
+      deductible REAL NOT NULL DEFAULT 0,
+      beneficiary TEXT,
+      broker_name TEXT,
+      broker_contact TEXT,
+      auto_renewal INTEGER NOT NULL DEFAULT 1,
+      document_ref TEXT,
+      notes TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS insurance_claims (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      policy_id INTEGER,
+      incident_date TEXT NOT NULL,
+      claim_reference TEXT,
+      description TEXT NOT NULL,
+      claimed_amount REAL NOT NULL DEFAULT 0,
+      reimbursed_amount REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'open',
+      notes TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(policy_id) REFERENCES insurance_policies(id) ON DELETE SET NULL
+    )`);
+    await exec(db, 'CREATE INDEX IF NOT EXISTS idx_insurance_policies_renewal ON insurance_policies(renewal_date)');
+    await exec(db, 'CREATE INDEX IF NOT EXISTS idx_insurance_claims_policy ON insurance_claims(policy_id, incident_date)');
+    await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (5,'V2.4 protection: insurance policies and claims')`);
+    current = 5;
   }
 
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('schema_version',$1)`, [String(current)]);
@@ -436,6 +479,21 @@ async function seedDemo(db: Database) {
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('demo_seed_version','1')`);
 }
 
+
+async function seedProtectionDemo(db: Database) {
+  const seeded = await db.select<Array<{ value: string }>>(`SELECT value FROM settings WHERE key='protection_demo_seed_version'`);
+  if (seeded[0]?.value === '1') return;
+  await exec(db, `INSERT INTO insurance_policies(name,category,provider,policy_number,insured_for,status,premium_amount,premium_frequency,start_date,renewal_date,coverage_amount,deductible,beneficiary,broker_name,broker_contact,auto_renewal,document_ref,notes) VALUES
+    ('Family home protection','Home','Northstar Insurance','DEMO-HOME-2048','Household','active',742,'Annual','2024-02-01','2027-02-01',675000,650,NULL,'Harbor Insurance Partners','demo@broker.example',1,'home-policy-demo.pdf','Fictional demo policy'),
+    ('Family liability','Family liability','Civic Mutual','DEMO-FAM-1188','Household','active',118,'Annual','2023-09-10','2026-09-10',2500000,0,NULL,'Harbor Insurance Partners','demo@broker.example',1,'family-liability-demo.pdf','Fictional demo policy'),
+    ('Hospitalisation plan','Hospitalisation','MedProtect','DEMO-HOSP-7741','Personal','active',46,'Monthly','2022-01-01','2027-01-01',0,125,NULL,'Direct','support@medprotect.example',1,'hospital-demo.pdf','Fictional demo policy'),
+    ('Income protection','Income protection','SecureLife','DEMO-IP-9012','Personal','active',1260,'Annual','2025-04-01','2027-04-01',90000,0,'Partner','Harbor Insurance Partners','demo@broker.example',1,'income-protection-demo.pdf','Fictional demo policy'),
+    ('Travel cover','Travel','Voyage Shield','DEMO-TRAVEL-6630','Household','active',168,'Annual','2026-05-01','2027-05-01',0,100,NULL,'Direct','help@voyageshield.example',1,'travel-demo.pdf','Fictional demo policy')`);
+  const policy = await db.select<Array<{id:number,name:string}>>(`SELECT id,name FROM insurance_policies WHERE name='Travel cover' LIMIT 1`);
+  if (policy[0]) await exec(db, `INSERT INTO insurance_claims(policy_id,incident_date,claim_reference,description,claimed_amount,reimbursed_amount,status,notes) VALUES($1,'2026-06-18','DEMO-CLM-042','Delayed baggage expenses',318,318,'paid','Fictional demo claim')`, [policy[0].id]);
+  await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('protection_demo_seed_version','1')`);
+}
+
 export async function select<T>(sql: string, bind: unknown[] = []): Promise<T[]> {
   const db = await getDb();
   return db.select<T[]>(sql, bind);
@@ -482,6 +540,8 @@ export const repo = {
     return select<CategorizationRule>(`SELECT r.*, c.name category_name FROM categorization_rules r JOIN categories c ON c.id=r.category_id ORDER BY priority DESC, id DESC`);
   },
   async connections(): Promise<Connection[]> { return select<Connection>('SELECT * FROM connections ORDER BY kind, name'); },
+  async insurancePolicies(): Promise<InsurancePolicy[]> { return select<InsurancePolicy>(`SELECT * FROM insurance_policies ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, COALESCE(renewal_date,'9999-12-31'), name`); },
+  async insuranceClaims(): Promise<InsuranceClaim[]> { return select<InsuranceClaim>(`SELECT c.*, p.name policy_name FROM insurance_claims c LEFT JOIN insurance_policies p ON p.id=c.policy_id ORDER BY incident_date DESC, c.id DESC`); },
   async setting(key: string, fallback = ''): Promise<string> {
     const rows = await select<{ value: string }>('SELECT value FROM settings WHERE key=$1', [key]);
     return rows[0]?.value ?? fallback;
@@ -499,7 +559,7 @@ export async function exportAllData() {
   const tables = [
     'settings','categories','accounts','transactions','categorization_rules','import_batches','inbox','budgets',
     'recurring_expenses','securities','trades','dividends','investment_targets','price_history','properties','pensions',
-    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','schema_migrations','app_metadata','profile_info',
+    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','schema_migrations','app_metadata','profile_info',
   ];
   const output: Record<string, unknown[]> = {};
   for (const table of tables) output[table] = await select<Record<string, unknown>>(`SELECT * FROM ${table}`);
