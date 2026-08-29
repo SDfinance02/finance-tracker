@@ -283,7 +283,7 @@ export function Future() {
     </Card>
 
     <div className="future-scenario-admin"><button className="btn compact" onClick={makeBaseline} disabled={!!selected.is_baseline}>Make baseline</button><button className="btn compact danger" onClick={deleteScenario} disabled={scenarios.length<=1}><Trash2 size={13}/>Delete scenario</button></div>
-    <div className="notice neutral future-disclaimer"><strong>Planning model, not a prediction.</strong><span>V2.5 uses deterministic assumptions and simplifies taxes, market sequence risk, mortgage tax effects and irregular future spending. V2.6 adds stochastic Monte Carlo and Decision Lab comparisons.</span></div>
+    <div className="notice neutral future-disclaimer"><strong>Planning model, not a prediction.</strong><span>Future remains the transparent deterministic base plan. Use Decision Lab for Monte Carlo uncertainty, sequence-of-returns stress and probabilistic scenario comparison.</span></div>
 
     <Modal open={scenarioOpen} title="Scenario assumptions" subtitle="Fine-tune the model while keeping every assumption visible." onClose={()=>setScenarioOpen(false)} width={760}>
       <div className="form-grid three">

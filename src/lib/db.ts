@@ -4,11 +4,11 @@ import { getActiveProfile, type Profile } from './profiles';
 import type {
   Account, Budget, Category, CategorizationRule, Connection, Debtor, Dividend, InboxItem,
   InvestmentTarget, Liability, Pension, Property, RecurringExpense, Security, Snapshot, Trade,
-  Transaction, InsurancePolicy, InsuranceClaim, FutureScenario, FutureEvent,
+  Transaction, InsurancePolicy, InsuranceClaim, FutureScenario, FutureEvent, FutureRiskSettings, DecisionLabRun,
 } from '../types';
 
 let dbPromise: Promise<Database> | null = null;
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 export async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -424,6 +424,45 @@ async function runMigrations(db: Database) {
     current = 6;
   }
 
+  if (current < 7) {
+    await exec(db, `CREATE TABLE IF NOT EXISTS future_risk_settings (
+      scenario_id INTEGER PRIMARY KEY,
+      simulations INTEGER NOT NULL DEFAULT 5000,
+      investment_volatility_pct REAL NOT NULL DEFAULT 16,
+      cash_volatility_pct REAL NOT NULL DEFAULT 0.5,
+      inflation_volatility_pct REAL NOT NULL DEFAULT 1.5,
+      property_volatility_pct REAL NOT NULL DEFAULT 8,
+      pension_volatility_pct REAL NOT NULL DEFAULT 12,
+      property_equity_correlation REAL NOT NULL DEFAULT 0.20,
+      pension_equity_correlation REAL NOT NULL DEFAULT 0.65,
+      early_shock_pct REAL NOT NULL DEFAULT 0,
+      early_shock_month INTEGER NOT NULL DEFAULT 1,
+      failure_floor REAL NOT NULL DEFAULT 0,
+      random_seed INTEGER NOT NULL DEFAULT 260829,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(scenario_id) REFERENCES future_scenarios(id) ON DELETE CASCADE
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS decision_lab_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scenario_id INTEGER NOT NULL,
+      scenario_name TEXT NOT NULL,
+      simulations INTEGER NOT NULL,
+      success_probability REAL NOT NULL,
+      fi_probability REAL NOT NULL,
+      cash_stress_probability REAL NOT NULL,
+      p10_horizon_nw REAL NOT NULL,
+      median_horizon_nw REAL NOT NULL,
+      p90_horizon_nw REAL NOT NULL,
+      median_fi_date TEXT,
+      settings_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await exec(db, 'CREATE INDEX IF NOT EXISTS idx_decision_lab_runs_created ON decision_lab_runs(created_at DESC)');
+    await exec(db, `INSERT INTO future_risk_settings(scenario_id) SELECT id FROM future_scenarios WHERE id NOT IN (SELECT scenario_id FROM future_risk_settings)`);
+    await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (7,'V2.6 Monte Carlo, sequence risk and Decision Lab')`);
+    current = 7;
+  }
+
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('schema_version',$1)`, [String(current)]);
   await exec(db, `INSERT OR REPLACE INTO app_metadata(key,value,updated_at) VALUES ('schema_version',$1,CURRENT_TIMESTAMP)`, [String(current)]);
 }
@@ -639,6 +678,18 @@ export const repo = {
   async insuranceClaims(): Promise<InsuranceClaim[]> { return select<InsuranceClaim>(`SELECT c.*, p.name policy_name FROM insurance_claims c LEFT JOIN insurance_policies p ON p.id=c.policy_id ORDER BY incident_date DESC, c.id DESC`); },
   async futureScenarios(): Promise<FutureScenario[]> { return select<FutureScenario>('SELECT * FROM future_scenarios ORDER BY is_baseline DESC, id'); },
   async futureEvents(scenarioId?: number): Promise<FutureEvent[]> { return select<FutureEvent>(`SELECT * FROM future_events ${scenarioId ? 'WHERE scenario_id=$1' : ''} ORDER BY start_date,id`, scenarioId ? [scenarioId] : []); },
+  async futureRiskSettings(scenarioId: number): Promise<FutureRiskSettings> {
+    await execute('INSERT OR IGNORE INTO future_risk_settings(scenario_id) VALUES($1)', [scenarioId]);
+    const rows = await select<FutureRiskSettings>('SELECT * FROM future_risk_settings WHERE scenario_id=$1', [scenarioId]);
+    return rows[0];
+  },
+  async saveFutureRiskSettings(settings: FutureRiskSettings) {
+    await execute(`INSERT INTO future_risk_settings(scenario_id,simulations,investment_volatility_pct,cash_volatility_pct,inflation_volatility_pct,property_volatility_pct,pension_volatility_pct,property_equity_correlation,pension_equity_correlation,early_shock_pct,early_shock_month,failure_floor,random_seed,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CURRENT_TIMESTAMP)
+      ON CONFLICT(scenario_id) DO UPDATE SET simulations=excluded.simulations,investment_volatility_pct=excluded.investment_volatility_pct,cash_volatility_pct=excluded.cash_volatility_pct,inflation_volatility_pct=excluded.inflation_volatility_pct,property_volatility_pct=excluded.property_volatility_pct,pension_volatility_pct=excluded.pension_volatility_pct,property_equity_correlation=excluded.property_equity_correlation,pension_equity_correlation=excluded.pension_equity_correlation,early_shock_pct=excluded.early_shock_pct,early_shock_month=excluded.early_shock_month,failure_floor=excluded.failure_floor,random_seed=excluded.random_seed,updated_at=CURRENT_TIMESTAMP`,
+      [settings.scenario_id,settings.simulations,settings.investment_volatility_pct,settings.cash_volatility_pct,settings.inflation_volatility_pct,settings.property_volatility_pct,settings.pension_volatility_pct,settings.property_equity_correlation,settings.pension_equity_correlation,settings.early_shock_pct,settings.early_shock_month,settings.failure_floor,settings.random_seed]);
+  },
+  async decisionLabRuns(limit=20): Promise<DecisionLabRun[]> { return select<DecisionLabRun>('SELECT * FROM decision_lab_runs ORDER BY id DESC LIMIT $1',[limit]); },
   async setting(key: string, fallback = ''): Promise<string> {
     const rows = await select<{ value: string }>('SELECT value FROM settings WHERE key=$1', [key]);
     return rows[0]?.value ?? fallback;
@@ -656,7 +707,7 @@ export async function exportAllData() {
   const tables = [
     'settings','categories','accounts','transactions','categorization_rules','import_batches','inbox','budgets',
     'recurring_expenses','securities','trades','dividends','investment_targets','price_history','properties','pensions',
-    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','future_scenarios','future_events','schema_migrations','app_metadata','profile_info',
+    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','future_scenarios','future_events','future_risk_settings','decision_lab_runs','schema_migrations','app_metadata','profile_info',
   ];
   const output: Record<string, unknown[]> = {};
   for (const table of tables) output[table] = await select<Record<string, unknown>>(`SELECT * FROM ${table}`);

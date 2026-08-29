@@ -1,6 +1,6 @@
 [package]
 name = "finance_tracker_v2"
-version = "2.5.0"
+version = "2.6.0"
 description = "Local-first personal finance tracker"
 authors = ["Local Finance Tracker"]
 edition = "2021"

@@ -1,11 +1,6 @@
-# Finance Tracker status
+# Finance Tracker V2 status
 
-Current release: **V2.5.0**
-Current profile schema: **v5**
+Current version: **2.6.0**  
+Current database schema: **7**
 
-Major modules: Dashboard, Household, Accounts, Transactions, Inbox, Budget, Planning, Investments, Real estate, Pensions & debt, Protection, Analytics, CGT planner, Connections, Profiles/Security and signed app updates.
-
-
-## V2.5
-
-Future planning: deterministic wealth projections, scenarios, life events, home/mortgage modelling, retirement/FI estimates and comparison.
+Core modules: profiles/security, Dashboard, Household, Accounts/Transactions, Budget, Investments, Real Estate, Pensions/Debt, Protection, Future, Decision Lab, Analytics, CGT planner, Connections and local backups.

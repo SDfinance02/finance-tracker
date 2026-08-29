@@ -6,6 +6,7 @@ import { ProfileSession } from './components/ProfileSession';
 import { Dashboard } from './pages/Dashboard';
 import { Household } from './pages/Household';
 import { Future } from './pages/Future';
+import { DecisionLab } from './pages/DecisionLab';
 import { Accounts } from './pages/Accounts';
 import { Transactions } from './pages/Transactions';
 import { InboxPage } from './pages/Inbox';
@@ -42,6 +43,7 @@ export default function App() {
     <Route path="/" element={<Dashboard/>}/>
     <Route path="/household" element={<Household/>}/>
     <Route path="/future" element={<Future/>}/>
+    <Route path="/decision-lab" element={<DecisionLab/>}/>
     <Route path="/accounts" element={<Accounts/>}/>
     <Route path="/transactions" element={<Transactions/>}/>
     <Route path="/inbox" element={<InboxPage/>}/>

@@ -272,3 +272,67 @@ export interface FutureProjectionResult {
   cumulativeSavings: number;
   startingNetWorth: number;
 }
+
+export interface FutureRiskSettings {
+  scenario_id: number;
+  simulations: number;
+  investment_volatility_pct: number;
+  cash_volatility_pct: number;
+  inflation_volatility_pct: number;
+  property_volatility_pct: number;
+  pension_volatility_pct: number;
+  property_equity_correlation: number;
+  pension_equity_correlation: number;
+  early_shock_pct: number;
+  early_shock_month: number;
+  failure_floor: number;
+  random_seed: number;
+  updated_at?: string;
+}
+
+export interface MonteCarloPercentilePoint {
+  date: string;
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  investableP50: number;
+}
+
+export interface MonteCarloDistributionBucket {
+  from: number;
+  to: number;
+  count: number;
+}
+
+export interface MonteCarloResult {
+  scenarioId: number;
+  simulations: number;
+  successProbability: number;
+  fiProbability: number;
+  cashStressProbability: number;
+  p10HorizonNetWorth: number;
+  medianHorizonNetWorth: number;
+  p90HorizonNetWorth: number;
+  medianHorizonInvestable: number;
+  medianFiDate: string | null;
+  percentilePoints: MonteCarloPercentilePoint[];
+  distribution: MonteCarloDistributionBucket[];
+}
+
+export interface DecisionLabRun {
+  id: number;
+  scenario_id: number;
+  scenario_name: string;
+  simulations: number;
+  success_probability: number;
+  fi_probability: number;
+  cash_stress_probability: number;
+  p10_horizon_nw: number;
+  median_horizon_nw: number;
+  p90_horizon_nw: number;
+  median_fi_date?: string | null;
+  settings_json: string;
+  created_at: string;
+}

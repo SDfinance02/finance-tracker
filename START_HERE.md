@@ -1,9 +1,13 @@
-# Finance Tracker V2.5
+# Finance Tracker 2.6 — Start here
 
-V2.5 adds **Future**: long-term wealth projections, life events, home/mortgage modelling, retirement/FI estimates and scenario comparison.
+Open **Future** to build transparent deterministic financial scenarios.
+Open **Decision Lab** to stress-test those scenarios with Monte Carlo uncertainty and sequence risk.
 
-For an existing V2.4 source checkout, apply the V2.5 patch, test with `run_finance.command`, confirm **v2.5.0 / schema v6**, then use `publish_release.command` to publish the signed updater release.
+Recommended first run:
+1. Choose the Future scenario you want to test.
+2. Keep 5,000 simulations and the default risk assumptions initially.
+3. Click **Run Monte Carlo**.
+4. Review Plan success, Reach FI, P10/Median/P90 and Cash stress.
+5. Use **Compare scenarios** to apply matched risk assumptions across up to four Future scenarios.
 
-Once the GitHub workflow is green, update the installed V2.4 application from **Settings → Check for updates**.
-
-See `UPGRADE_TO_V2_5.md` and `V2_5_STATUS.md` for details.
+The simulation runs locally. It does not modify real account balances or Future scenarios.
