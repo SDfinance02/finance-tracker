@@ -1,6 +1,6 @@
-# Finance Tracker V2 status
+# Finance Tracker current status
 
-Current version: **2.6.0**  
-Current database schema: **7**
+Current release: **V2.7.0**  
+Current database schema: **8**
 
-Core modules: profiles/security, Dashboard, Household, Accounts/Transactions, Budget, Investments, Real Estate, Pensions/Debt, Protection, Future, Decision Lab, Analytics, CGT planner, Connections and local backups.
+See `V2_7_STATUS.md` for the current feature summary.

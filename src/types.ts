@@ -336,3 +336,105 @@ export interface DecisionLabRun {
   settings_json: string;
   created_at: string;
 }
+
+export type BusinessTransactionKind = 'revenue' | 'expense' | 'salary' | 'asset' | 'tax' | 'dividend' | 'transfer' | 'other';
+export type BusinessFlow = 'in' | 'out';
+
+export interface BusinessEntity {
+  id: number;
+  name: string;
+  company_type: string;
+  enterprise_number?: string | null;
+  vat_number?: string | null;
+  incorporation_date?: string | null;
+  fiscal_year: number;
+  currency: string;
+  opening_cash: number;
+  small_company: number;
+  use_reduced_rate: number;
+  advance_payment_exempt: number;
+  director_remuneration: number;
+  benefits_in_kind: number;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BusinessTransaction {
+  id: number;
+  entity_id: number;
+  date: string;
+  flow: BusinessFlow;
+  kind: BusinessTransactionKind;
+  category: string;
+  description: string;
+  counterparty?: string | null;
+  net_amount: number;
+  vat_amount: number;
+  gross_amount: number;
+  tax_deductible_pct: number;
+  vat_deductible_pct: number;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface BusinessAsset {
+  id: number;
+  entity_id: number;
+  name: string;
+  category: string;
+  purchase_date: string;
+  purchase_value_ex_vat: number;
+  residual_value: number;
+  depreciation_years: number;
+  current_book_value: number;
+  tax_deductible_pct: number;
+  notes?: string | null;
+  updated_at: string;
+}
+
+export interface BusinessInvoice {
+  id: number;
+  entity_id: number;
+  direction: 'receivable' | 'payable' | string;
+  counterparty: string;
+  invoice_number?: string | null;
+  issue_date: string;
+  due_date?: string | null;
+  amount_incl_vat: number;
+  outstanding_amount: number;
+  status: string;
+  notes?: string | null;
+  updated_at: string;
+}
+
+export interface BusinessAdvancePayment {
+  id: number;
+  entity_id: number;
+  tax_year: number;
+  quarter: number;
+  payment_date?: string | null;
+  amount: number;
+  notes?: string | null;
+}
+
+export interface BusinessTaxSettings {
+  entity_id: number;
+  tax_year: number;
+  standard_cit_pct: number;
+  reduced_cit_pct: number;
+  reduced_threshold: number;
+  minimum_remuneration: number;
+  bik_limit_pct: number;
+  advance_surcharge_pct: number;
+  advance_base_multiplier: number;
+  va1_credit_pct: number;
+  va2_credit_pct: number;
+  va3_credit_pct: number;
+  va4_credit_pct: number;
+  ordinary_dividend_wht_pct: number;
+  vvprbis_wht_pct: number;
+  liquidation_reserve_creation_tax_pct: number;
+  liquidation_reserve_wht_pct: number;
+  updated_at?: string;
+}

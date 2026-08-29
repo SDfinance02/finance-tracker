@@ -45,7 +45,7 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: 'Finance Tracker v__VERSION__'
-          releaseBody: 'Finance Tracker v2.6 adds Decision Lab: Monte Carlo wealth paths, P10/P50/P90 confidence bands, FI probability, liquidity stress, sequence-of-returns shock testing, scenario robustness comparison and a local simulation audit trail. Existing local finance data is preserved.'
+          releaseBody: 'Finance Tracker v2.7 adds My BV: a separate Belgian company ledger, management dashboard, receivables/payables, company assets, VAT estimate, corporate-tax planning, advance payments and a profit-extraction lab for salary/dividend/VVPR-bis/liquidation-reserve comparisons. Existing local finance data is preserved.'
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

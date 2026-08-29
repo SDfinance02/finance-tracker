@@ -5,10 +5,11 @@ import type {
   Account, Budget, Category, CategorizationRule, Connection, Debtor, Dividend, InboxItem,
   InvestmentTarget, Liability, Pension, Property, RecurringExpense, Security, Snapshot, Trade,
   Transaction, InsurancePolicy, InsuranceClaim, FutureScenario, FutureEvent, FutureRiskSettings, DecisionLabRun,
+  BusinessEntity, BusinessTransaction, BusinessAsset, BusinessInvoice, BusinessAdvancePayment, BusinessTaxSettings,
 } from '../types';
 
 let dbPromise: Promise<Database> | null = null;
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 export async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -286,6 +287,7 @@ async function initialize(db: Database, profile: Profile) {
   await exec(db, `INSERT OR REPLACE INTO profile_info(key,value) VALUES ('profile_kind',$1)`, [profile.kind]);
   if (profile.kind === 'demo') { await seedDemo(db); await seedProtectionDemo(db); }
   await seedFutureDefaults(db, profile.kind === 'demo');
+  if (profile.kind === 'demo') await seedBusinessDemo(db);
 }
 
 async function runMigrations(db: Database) {
@@ -463,6 +465,113 @@ async function runMigrations(db: Database) {
     current = 7;
   }
 
+  if (current < 8) {
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_entities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      company_type TEXT NOT NULL DEFAULT 'BV',
+      enterprise_number TEXT,
+      vat_number TEXT,
+      incorporation_date TEXT,
+      fiscal_year INTEGER NOT NULL DEFAULT 2026,
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      opening_cash REAL NOT NULL DEFAULT 0,
+      small_company INTEGER NOT NULL DEFAULT 1,
+      use_reduced_rate INTEGER NOT NULL DEFAULT 1,
+      advance_payment_exempt INTEGER NOT NULL DEFAULT 0,
+      director_remuneration REAL NOT NULL DEFAULT 0,
+      benefits_in_kind REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      flow TEXT NOT NULL DEFAULT 'out',
+      kind TEXT NOT NULL DEFAULT 'expense',
+      category TEXT NOT NULL DEFAULT 'Other',
+      description TEXT NOT NULL,
+      counterparty TEXT,
+      net_amount REAL NOT NULL DEFAULT 0,
+      vat_amount REAL NOT NULL DEFAULT 0,
+      gross_amount REAL NOT NULL DEFAULT 0,
+      tax_deductible_pct REAL NOT NULL DEFAULT 100,
+      vat_deductible_pct REAL NOT NULL DEFAULT 100,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(entity_id) REFERENCES business_entities(id) ON DELETE CASCADE
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'Equipment',
+      purchase_date TEXT NOT NULL,
+      purchase_value_ex_vat REAL NOT NULL DEFAULT 0,
+      residual_value REAL NOT NULL DEFAULT 0,
+      depreciation_years REAL NOT NULL DEFAULT 5,
+      current_book_value REAL NOT NULL DEFAULT 0,
+      tax_deductible_pct REAL NOT NULL DEFAULT 100,
+      notes TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(entity_id) REFERENCES business_entities(id) ON DELETE CASCADE
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_id INTEGER NOT NULL,
+      direction TEXT NOT NULL DEFAULT 'receivable',
+      counterparty TEXT NOT NULL,
+      invoice_number TEXT,
+      issue_date TEXT NOT NULL,
+      due_date TEXT,
+      amount_incl_vat REAL NOT NULL DEFAULT 0,
+      outstanding_amount REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'open',
+      notes TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(entity_id) REFERENCES business_entities(id) ON DELETE CASCADE
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_advance_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_id INTEGER NOT NULL,
+      tax_year INTEGER NOT NULL,
+      quarter INTEGER NOT NULL,
+      payment_date TEXT,
+      amount REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      UNIQUE(entity_id,tax_year,quarter),
+      FOREIGN KEY(entity_id) REFERENCES business_entities(id) ON DELETE CASCADE
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_tax_settings (
+      entity_id INTEGER NOT NULL,
+      tax_year INTEGER NOT NULL,
+      standard_cit_pct REAL NOT NULL DEFAULT 25,
+      reduced_cit_pct REAL NOT NULL DEFAULT 20,
+      reduced_threshold REAL NOT NULL DEFAULT 100000,
+      minimum_remuneration REAL NOT NULL DEFAULT 50000,
+      bik_limit_pct REAL NOT NULL DEFAULT 20,
+      advance_surcharge_pct REAL NOT NULL DEFAULT 6.75,
+      advance_base_multiplier REAL NOT NULL DEFAULT 1.02,
+      va1_credit_pct REAL NOT NULL DEFAULT 9,
+      va2_credit_pct REAL NOT NULL DEFAULT 7.5,
+      va3_credit_pct REAL NOT NULL DEFAULT 6,
+      va4_credit_pct REAL NOT NULL DEFAULT 4.5,
+      ordinary_dividend_wht_pct REAL NOT NULL DEFAULT 30,
+      vvprbis_wht_pct REAL NOT NULL DEFAULT 18,
+      liquidation_reserve_creation_tax_pct REAL NOT NULL DEFAULT 10,
+      liquidation_reserve_wht_pct REAL NOT NULL DEFAULT 9.8,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(entity_id,tax_year),
+      FOREIGN KEY(entity_id) REFERENCES business_entities(id) ON DELETE CASCADE
+    )`);
+    await exec(db, 'CREATE INDEX IF NOT EXISTS idx_business_transactions_entity_date ON business_transactions(entity_id,date)');
+    await exec(db, 'CREATE INDEX IF NOT EXISTS idx_business_invoices_entity_due ON business_invoices(entity_id,due_date)');
+    await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (8,'V2.7 Belgian BV management cockpit and tax planning')`);
+    current = 8;
+  }
+
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('schema_version',$1)`, [String(current)]);
   await exec(db, `INSERT OR REPLACE INTO app_metadata(key,value,updated_at) VALUES ('schema_version',$1,CURRENT_TIMESTAMP)`, [String(current)]);
 }
@@ -628,6 +737,47 @@ async function seedFutureDefaults(db: Database, demo: boolean) {
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES('future_demo_seed_version','1')`);
 }
 
+
+async function seedBusinessDemo(db: Database) {
+  const seeded = await db.select<Array<{ value:string }>>(`SELECT value FROM settings WHERE key='business_demo_seed_version'`);
+  if (seeded[0]?.value === '1') return;
+  const result = await exec(db, `INSERT INTO business_entities(name,company_type,enterprise_number,vat_number,incorporation_date,fiscal_year,currency,opening_cash,small_company,use_reduced_rate,advance_payment_exempt,director_remuneration,benefits_in_kind,notes)
+    VALUES('Aster Professional BV','BV','BE 0123.456.789','BE0123456789','2024-01-15',2026,'EUR',96500,1,1,0,52000,6200,'Entirely fictional Belgian medical company for demonstrations.')`);
+  const entityId = Number(result.lastInsertId);
+  if (!entityId) return;
+  await exec(db, `INSERT INTO business_tax_settings(entity_id,tax_year) VALUES($1,2026)`, [entityId]);
+  const entries = [
+    ['2026-01-08','in','revenue','Professional fees','January professional services','Demo Client',26800,5628,32428,100,100],
+    ['2026-02-06','in','revenue','Professional fees','February professional services','Demo Client',28100,5901,34001,100,100],
+    ['2026-03-07','in','revenue','Professional fees','March professional services','Demo Client',29200,6132,35332,100,100],
+    ['2026-04-08','in','revenue','Professional fees','April professional services','Demo Client',27400,5754,33154,100,100],
+    ['2026-05-08','in','revenue','Professional fees','May professional services','Demo Client',30500,6405,36905,100,100],
+    ['2026-06-09','in','revenue','Professional fees','June professional services','Demo Client',28600,6006,34606,100,100],
+    ['2026-07-08','in','revenue','Professional fees','July professional services','Demo Client',31200,6552,37752,100,100],
+    ['2026-08-07','in','revenue','Professional fees','August professional services','Demo Client',24700,5187,29887,100,100],
+    ['2026-01-15','out','expense','Accountancy','Quarterly accountancy & tax','Ledger Partners',2800,588,3388,100,100],
+    ['2026-02-11','out','expense','Insurance','Professional liability cover','Demo Insurer',1850,0,1850,100,0],
+    ['2026-03-10','out','expense','Vehicle','Vehicle operating costs','Mobility Services',2200,462,2662,75,50],
+    ['2026-04-12','out','expense','Software','Practice software & cloud','Clinical Systems',1650,346.5,1996.5,100,100],
+    ['2026-05-20','out','expense','Training','Professional congress','Medical Congress',2350,493.5,2843.5,100,100],
+    ['2026-06-15','out','salary','Director remuneration','Director remuneration','Director',4333.33,0,4333.33,100,0],
+    ['2026-07-15','out','salary','Director remuneration','Director remuneration','Director',4333.33,0,4333.33,100,0],
+    ['2026-08-15','out','salary','Director remuneration','Director remuneration','Director',4333.33,0,4333.33,100,0],
+  ];
+  for (const row of entries) await exec(db, `INSERT INTO business_transactions(entity_id,date,flow,kind,category,description,counterparty,net_amount,vat_amount,gross_amount,tax_deductible_pct,vat_deductible_pct,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Fictional demo entry')`, [entityId,...row]);
+  await exec(db, `INSERT INTO business_assets(entity_id,name,category,purchase_date,purchase_value_ex_vat,residual_value,depreciation_years,current_book_value,tax_deductible_pct,notes) VALUES
+    ($1,'Medical equipment','Equipment','2025-02-12',28000,2000,5,20200,100,'Fictional demo asset'),
+    ($1,'Company laptop & displays','IT','2026-01-20',5200,0,3,3756,100,'Fictional demo asset'),
+    ($1,'Company vehicle','Vehicle','2025-09-01',48500,8000,5,40400,75,'Simplified demo tax deductibility')`, [entityId]);
+  await exec(db, `INSERT INTO business_invoices(entity_id,direction,counterparty,invoice_number,issue_date,due_date,amount_incl_vat,outstanding_amount,status,notes) VALUES
+    ($1,'receivable','Demo Client','2026-081','2026-08-25','2026-09-24',14278,14278,'open','Fictional outstanding invoice'),
+    ($1,'receivable','Demo Clinic','2026-079','2026-08-20','2026-09-19',7865,7865,'open','Fictional outstanding invoice'),
+    ($1,'payable','Ledger Partners','LP-2608','2026-08-22','2026-09-21',1452,1452,'open','Fictional accountancy invoice')`, [entityId]);
+  await exec(db, `INSERT INTO business_advance_payments(entity_id,tax_year,quarter,payment_date,amount,notes) VALUES
+    ($1,2026,1,'2026-04-08',8500,'Demo VA1'),($1,2026,2,'2026-07-08',8500,'Demo VA2')`, [entityId]);
+  await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES('business_demo_seed_version','1')`);
+}
+
 export async function select<T>(sql: string, bind: unknown[] = []): Promise<T[]> {
   const db = await getDb();
   return db.select<T[]>(sql, bind);
@@ -690,6 +840,22 @@ export const repo = {
       [settings.scenario_id,settings.simulations,settings.investment_volatility_pct,settings.cash_volatility_pct,settings.inflation_volatility_pct,settings.property_volatility_pct,settings.pension_volatility_pct,settings.property_equity_correlation,settings.pension_equity_correlation,settings.early_shock_pct,settings.early_shock_month,settings.failure_floor,settings.random_seed]);
   },
   async decisionLabRuns(limit=20): Promise<DecisionLabRun[]> { return select<DecisionLabRun>('SELECT * FROM decision_lab_runs ORDER BY id DESC LIMIT $1',[limit]); },
+  async businessEntities(): Promise<BusinessEntity[]> { return select<BusinessEntity>('SELECT * FROM business_entities ORDER BY id'); },
+  async businessTransactions(entityId: number): Promise<BusinessTransaction[]> { return select<BusinessTransaction>('SELECT * FROM business_transactions WHERE entity_id=$1 ORDER BY date DESC,id DESC',[entityId]); },
+  async businessAssets(entityId: number): Promise<BusinessAsset[]> { return select<BusinessAsset>('SELECT * FROM business_assets WHERE entity_id=$1 ORDER BY purchase_date DESC,id DESC',[entityId]); },
+  async businessInvoices(entityId: number): Promise<BusinessInvoice[]> { return select<BusinessInvoice>('SELECT * FROM business_invoices WHERE entity_id=$1 ORDER BY CASE status WHEN \'open\' THEN 0 ELSE 1 END,COALESCE(due_date,\'9999-12-31\'),id DESC',[entityId]); },
+  async businessAdvancePayments(entityId: number, taxYear: number): Promise<BusinessAdvancePayment[]> { return select<BusinessAdvancePayment>('SELECT * FROM business_advance_payments WHERE entity_id=$1 AND tax_year=$2 ORDER BY quarter',[entityId,taxYear]); },
+  async businessTaxSettings(entityId: number, taxYear: number): Promise<BusinessTaxSettings> {
+    await execute(`INSERT OR IGNORE INTO business_tax_settings(entity_id,tax_year) VALUES($1,$2)`,[entityId,taxYear]);
+    const rows=await select<BusinessTaxSettings>('SELECT * FROM business_tax_settings WHERE entity_id=$1 AND tax_year=$2',[entityId,taxYear]);
+    return rows[0];
+  },
+  async saveBusinessTaxSettings(x: BusinessTaxSettings) {
+    await execute(`INSERT INTO business_tax_settings(entity_id,tax_year,standard_cit_pct,reduced_cit_pct,reduced_threshold,minimum_remuneration,bik_limit_pct,advance_surcharge_pct,advance_base_multiplier,va1_credit_pct,va2_credit_pct,va3_credit_pct,va4_credit_pct,ordinary_dividend_wht_pct,vvprbis_wht_pct,liquidation_reserve_creation_tax_pct,liquidation_reserve_wht_pct,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,CURRENT_TIMESTAMP)
+      ON CONFLICT(entity_id,tax_year) DO UPDATE SET standard_cit_pct=excluded.standard_cit_pct,reduced_cit_pct=excluded.reduced_cit_pct,reduced_threshold=excluded.reduced_threshold,minimum_remuneration=excluded.minimum_remuneration,bik_limit_pct=excluded.bik_limit_pct,advance_surcharge_pct=excluded.advance_surcharge_pct,advance_base_multiplier=excluded.advance_base_multiplier,va1_credit_pct=excluded.va1_credit_pct,va2_credit_pct=excluded.va2_credit_pct,va3_credit_pct=excluded.va3_credit_pct,va4_credit_pct=excluded.va4_credit_pct,ordinary_dividend_wht_pct=excluded.ordinary_dividend_wht_pct,vvprbis_wht_pct=excluded.vvprbis_wht_pct,liquidation_reserve_creation_tax_pct=excluded.liquidation_reserve_creation_tax_pct,liquidation_reserve_wht_pct=excluded.liquidation_reserve_wht_pct,updated_at=CURRENT_TIMESTAMP`,
+      [x.entity_id,x.tax_year,x.standard_cit_pct,x.reduced_cit_pct,x.reduced_threshold,x.minimum_remuneration,x.bik_limit_pct,x.advance_surcharge_pct,x.advance_base_multiplier,x.va1_credit_pct,x.va2_credit_pct,x.va3_credit_pct,x.va4_credit_pct,x.ordinary_dividend_wht_pct,x.vvprbis_wht_pct,x.liquidation_reserve_creation_tax_pct,x.liquidation_reserve_wht_pct]);
+  },
   async setting(key: string, fallback = ''): Promise<string> {
     const rows = await select<{ value: string }>('SELECT value FROM settings WHERE key=$1', [key]);
     return rows[0]?.value ?? fallback;
@@ -707,7 +873,7 @@ export async function exportAllData() {
   const tables = [
     'settings','categories','accounts','transactions','categorization_rules','import_batches','inbox','budgets',
     'recurring_expenses','securities','trades','dividends','investment_targets','price_history','properties','pensions',
-    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','future_scenarios','future_events','future_risk_settings','decision_lab_runs','schema_migrations','app_metadata','profile_info',
+    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','future_scenarios','future_events','future_risk_settings','decision_lab_runs','business_entities','business_transactions','business_assets','business_invoices','business_advance_payments','business_tax_settings','schema_migrations','app_metadata','profile_info',
   ];
   const output: Record<string, unknown[]> = {};
   for (const table of tables) output[table] = await select<Record<string, unknown>>(`SELECT * FROM ${table}`);
