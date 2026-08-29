@@ -3,7 +3,7 @@ import {
   Area, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  CalendarRange, Copy, Gauge, Home, Landmark, Pencil, Plus, Rocket, Settings2, Target,
+  CalendarRange, Copy, Gauge, Home, Landmark, Pencil, Plus, Rocket, Settings2, Target, Building2,
   Trash2, TrendingUp, UsersRound, WalletCards,
 } from 'lucide-react';
 import { Badge, Card, EmptyState, Field, PageHeader } from '../components/Common';
@@ -12,6 +12,7 @@ import { Modal } from '../components/Modal';
 import { useProfileSession } from '../components/ProfileSession';
 import { execute, repo, select } from '../lib/db';
 import { derivePositions, financeTotals, monthlySeries } from '../lib/finance';
+import { currentBusinessProjectionContribution, householdBusinessProjectionContribution } from '../lib/consolidation';
 import {
   formatFiDate, monthlyMortgagePayment, projectScenario, projectionYearly, startingNetWorth,
 } from '../lib/future';
@@ -36,7 +37,7 @@ const scenarioBlank = (): Omit<FutureScenario,'id'|'created_at'|'updated_at'> =>
   name:'Base plan',description:'',scope:'profile',is_baseline:0,horizon_years:35,annual_return_pct:6,
   cash_return_pct:1.5,inflation_pct:2,income_growth_pct:2,expense_growth_pct:0,property_growth_pct:2,
   pension_growth_pct:4,surplus_to_invest_pct:80,withdrawal_rate_pct:4,include_pensions_in_fi:0,
-  baseline_income_override:null,baseline_expense_override:null,pension_monthly_contribution:0,auto_fund_deficits:1,
+  baseline_income_override:null,baseline_expense_override:null,pension_monthly_contribution:0,auto_fund_deficits:1,business_growth_pct:null,include_business_in_fi:0,
 });
 
 const eventBlank = (): Omit<FutureEvent,'id'|'scenario_id'|'created_at'|'updated_at'> => ({
@@ -101,12 +102,14 @@ export function Future() {
     ]) as [Account[],Security[],Trade[],Property[],Pension[],Liability[],Debtor[],Transaction[]];
     const positions=derivePositions(securities,trades);
     const totals=financeTotals(accounts,positions,properties,pensions,debtors,liabilities);
+    const business=await currentBusinessProjectionContribution();
     const flow=avgRecentCashflow(transactions);
     const weightedDebtRate=liabilities.reduce((s,l)=>s+Math.max(0,l.outstanding_balance)*Math.max(0,l.interest_pct),0)/Math.max(1,liabilities.reduce((s,l)=>s+Math.max(0,l.outstanding_balance),0));
     setProfileStart({
       cash:totals.cash,investments:totals.investments,realEstate:totals.realEstate,pensions:totals.pensions,
       receivables:totals.debtors,liabilities:totals.liabilities,monthlyIncome:flow.income,monthlyExpenses:flow.expenses,
       existingDebtMonthlyPayment:liabilities.reduce((s,l)=>s+Math.max(0,l.monthly_payment),0),existingDebtInterestPct:weightedDebtRate||0,
+      businessEquity:business.equity,businessGrowthPct:business.growthPct,businessVolatilityPct:business.volatilityPct,businessFiEligiblePct:business.fiEligiblePct,
       sourceLabel:`${profile.name} · trailing ${flow.months}-month average cashflow`,
     });
 
@@ -119,6 +122,7 @@ export function Future() {
       const sharedPensions=shared.filter(x=>x.asset_class==='pensions').reduce((s,a)=>s+sharedAssetNet(a),0);
       const sharedReceivables=shared.filter(x=>x.asset_class==='receivables').reduce((s,a)=>s+sharedAssetNet(a),0);
       const sharedLiabilities=shared.filter(x=>x.asset_class==='liability').reduce((s,a)=>s+Math.abs(sharedAssetNet(a)),0);
+      const householdBusiness=householdBusinessProjectionContribution(members);
       setHouseholdStart({
         cash:members.reduce((s,m)=>s+m.cash,0)+sharedCash,
         investments:members.reduce((s,m)=>s+m.investments,0)+sharedInvestments,
@@ -129,6 +133,7 @@ export function Future() {
         monthlyIncome:members.reduce((s,m)=>s+m.monthly_income,0),
         monthlyExpenses:members.reduce((s,m)=>s+m.monthly_expenses,0),
         existingDebtMonthlyPayment:0,existingDebtInterestPct:0,
+        businessEquity:householdBusiness.equity,businessGrowthPct:householdBusiness.growthPct||4,businessVolatilityPct:householdBusiness.volatilityPct||22,businessFiEligiblePct:householdBusiness.fiEligiblePct,
         sourceLabel:`Household · ${members.length} shared profile ${members.length===1?'summary':'summaries'} + joint assets`,
       });
     } catch(e) {
@@ -175,8 +180,8 @@ export function Future() {
   const saveAssumptions=async()=>{
     if(!selected)return;setBusy(true);
     try{
-      await execute(`UPDATE future_scenarios SET name=$1,description=$2,scope=$3,horizon_years=$4,annual_return_pct=$5,cash_return_pct=$6,inflation_pct=$7,income_growth_pct=$8,expense_growth_pct=$9,property_growth_pct=$10,pension_growth_pct=$11,surplus_to_invest_pct=$12,withdrawal_rate_pct=$13,include_pensions_in_fi=$14,baseline_income_override=$15,baseline_expense_override=$16,pension_monthly_contribution=$17,auto_fund_deficits=$18,updated_at=CURRENT_TIMESTAMP WHERE id=$19`,[
-        scenarioForm.name.trim()||selected.name,scenarioForm.description||null,scenarioForm.scope,scenarioForm.horizon_years,scenarioForm.annual_return_pct,scenarioForm.cash_return_pct,scenarioForm.inflation_pct,scenarioForm.income_growth_pct,scenarioForm.expense_growth_pct,scenarioForm.property_growth_pct,scenarioForm.pension_growth_pct,scenarioForm.surplus_to_invest_pct,scenarioForm.withdrawal_rate_pct,scenarioForm.include_pensions_in_fi,scenarioForm.baseline_income_override,scenarioForm.baseline_expense_override,scenarioForm.pension_monthly_contribution,scenarioForm.auto_fund_deficits,selected.id,
+      await execute(`UPDATE future_scenarios SET name=$1,description=$2,scope=$3,horizon_years=$4,annual_return_pct=$5,cash_return_pct=$6,inflation_pct=$7,income_growth_pct=$8,expense_growth_pct=$9,property_growth_pct=$10,pension_growth_pct=$11,surplus_to_invest_pct=$12,withdrawal_rate_pct=$13,include_pensions_in_fi=$14,baseline_income_override=$15,baseline_expense_override=$16,pension_monthly_contribution=$17,auto_fund_deficits=$18,business_growth_pct=$19,include_business_in_fi=$20,updated_at=CURRENT_TIMESTAMP WHERE id=$21`,[
+        scenarioForm.name.trim()||selected.name,scenarioForm.description||null,scenarioForm.scope,scenarioForm.horizon_years,scenarioForm.annual_return_pct,scenarioForm.cash_return_pct,scenarioForm.inflation_pct,scenarioForm.income_growth_pct,scenarioForm.expense_growth_pct,scenarioForm.property_growth_pct,scenarioForm.pension_growth_pct,scenarioForm.surplus_to_invest_pct,scenarioForm.withdrawal_rate_pct,scenarioForm.include_pensions_in_fi,scenarioForm.baseline_income_override,scenarioForm.baseline_expense_override,scenarioForm.pension_monthly_contribution,scenarioForm.auto_fund_deficits,scenarioForm.business_growth_pct,scenarioForm.include_business_in_fi,selected.id,
       ]);setScenarioOpen(false);await load();
     }finally{setBusy(false)}
   };
@@ -185,8 +190,8 @@ export function Future() {
   const cloneScenario=async()=>{
     if(!selected||!cloneName.trim())return;setBusy(true);
     try{
-      const r=await execute(`INSERT INTO future_scenarios(name,description,scope,is_baseline,horizon_years,annual_return_pct,cash_return_pct,inflation_pct,income_growth_pct,expense_growth_pct,property_growth_pct,pension_growth_pct,surplus_to_invest_pct,withdrawal_rate_pct,include_pensions_in_fi,baseline_income_override,baseline_expense_override,pension_monthly_contribution,auto_fund_deficits) VALUES($1,$2,$3,0,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,[
-        cloneName.trim(),selected.description||null,selected.scope,selected.horizon_years,selected.annual_return_pct,selected.cash_return_pct,selected.inflation_pct,selected.income_growth_pct,selected.expense_growth_pct,selected.property_growth_pct,selected.pension_growth_pct,selected.surplus_to_invest_pct,selected.withdrawal_rate_pct,selected.include_pensions_in_fi,selected.baseline_income_override,selected.baseline_expense_override,selected.pension_monthly_contribution,selected.auto_fund_deficits,
+      const r=await execute(`INSERT INTO future_scenarios(name,description,scope,is_baseline,horizon_years,annual_return_pct,cash_return_pct,inflation_pct,income_growth_pct,expense_growth_pct,property_growth_pct,pension_growth_pct,surplus_to_invest_pct,withdrawal_rate_pct,include_pensions_in_fi,baseline_income_override,baseline_expense_override,pension_monthly_contribution,auto_fund_deficits,business_growth_pct,include_business_in_fi) VALUES($1,$2,$3,0,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,[
+        cloneName.trim(),selected.description||null,selected.scope,selected.horizon_years,selected.annual_return_pct,selected.cash_return_pct,selected.inflation_pct,selected.income_growth_pct,selected.expense_growth_pct,selected.property_growth_pct,selected.pension_growth_pct,selected.surplus_to_invest_pct,selected.withdrawal_rate_pct,selected.include_pensions_in_fi,selected.baseline_income_override,selected.baseline_expense_override,selected.pension_monthly_contribution,selected.auto_fund_deficits,selected.business_growth_pct,selected.include_business_in_fi,
       ]);
       const newId=Number(r.lastInsertId);
       for(const e of selectedEvents) await execute(`INSERT INTO future_events(scenario_id,name,event_type,start_date,end_date,amount,annual_growth_pct,details_json,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[newId,e.name,e.event_type,e.start_date,e.end_date||null,e.amount,e.annual_growth_pct,e.details_json||null,e.notes||null]);
@@ -237,7 +242,7 @@ export function Future() {
     <div className="kpi-grid future-kpis">
       <KpiCard label={`Projected net worth · ${selected.horizon_years}y`} value={money(result.horizonNetWorth)} sub={`${money(delta)} vs today · ≈ ${money(result.horizonNetWorth/Math.pow(1+selected.inflation_pct/100,selected.horizon_years))} in today’s euros`} tone={delta>=0?'positive':'negative'} icon={<TrendingUp size={16}/>}/>
       <KpiCard label="Financial independence" value={formatFiDate(result.fiDate)} sub={fiYears!=null?`≈ ${fiYears.toFixed(1)} years from now`:`Not reached within ${selected.horizon_years} years`} icon={<Target size={16}/>}/>
-      <KpiCard label="Investable assets at horizon" value={money(result.horizonInvestable)} sub={`${selected.include_pensions_in_fi?'Cash + investments + pensions':'Cash + investments'}`} icon={<WalletCards size={16}/>}/>
+      <KpiCard label="Investable assets at horizon" value={money(result.horizonInvestable)} sub={`${selected.include_pensions_in_fi?'Cash + investments + pensions':'Cash + investments'}${selected.include_business_in_fi?' + BV equity':''}`} icon={<WalletCards size={16}/>}/>
       <KpiCard label="Lowest projected cash" value={money(result.minimumCash)} sub={result.minimumCash<0?'Deficit requires attention':'Cash remains non-negative'} tone={result.minimumCash>=0?'positive':'negative'} icon={<Gauge size={16}/>}/>
     </div>
 
@@ -260,7 +265,7 @@ export function Future() {
           <div><span>FI withdrawal rate</span><strong>{selected.withdrawal_rate_pct.toFixed(2)}%</strong></div>
           <div><span>Projection horizon</span><strong>{selected.horizon_years} years</strong></div>
         </div>
-        <div className="notice neutral future-method-note"><strong>FI definition</strong><span>First month where projected {selected.include_pensions_in_fi?'cash + investments + pensions':'cash + investments'} ≥ annual projected expenses ÷ withdrawal rate. Real estate is excluded from FI assets.</span></div>
+        <div className="notice neutral future-method-note"><strong>FI definition</strong><span>First month where projected {selected.include_pensions_in_fi?'cash + investments + pensions':'cash + investments'}{selected.include_business_in_fi?' + BV equity':''} ≥ annual projected expenses ÷ withdrawal rate. Real estate is excluded from FI assets.</span></div>
       </Card>
     </div>
 
@@ -296,7 +301,7 @@ export function Future() {
         <Field label="Income growth %"><input className="input" type="number" step="0.1" value={scenarioForm.income_growth_pct} onChange={e=>setScenarioForm({...scenarioForm,income_growth_pct:Number(e.target.value)})}/></Field>
         <Field label="Expense drift above inflation %"><input className="input" type="number" step="0.1" value={scenarioForm.expense_growth_pct} onChange={e=>setScenarioForm({...scenarioForm,expense_growth_pct:Number(e.target.value)})}/></Field>
         <Field label="Property growth %"><input className="input" type="number" step="0.1" value={scenarioForm.property_growth_pct} onChange={e=>setScenarioForm({...scenarioForm,property_growth_pct:Number(e.target.value)})}/></Field>
-        <Field label="Pension growth %"><input className="input" type="number" step="0.1" value={scenarioForm.pension_growth_pct} onChange={e=>setScenarioForm({...scenarioForm,pension_growth_pct:Number(e.target.value)})}/></Field>
+        <Field label="Pension growth %"><input className="input" type="number" step="0.1" value={scenarioForm.pension_growth_pct} onChange={e=>setScenarioForm({...scenarioForm,pension_growth_pct:Number(e.target.value)})}/></Field><Field label="Business equity growth %" hint="Leave blank to use the ownership-weighted growth assumptions configured in Consolidated Wealth."><input className="input" type="number" step="0.1" placeholder="Use company settings" value={scenarioForm.business_growth_pct??''} onChange={e=>setScenarioForm({...scenarioForm,business_growth_pct:e.target.value===''?null:Number(e.target.value)})}/></Field>
         <Field label="Surplus invested %"><input className="input" type="number" min="0" max="100" value={scenarioForm.surplus_to_invest_pct} onChange={e=>setScenarioForm({...scenarioForm,surplus_to_invest_pct:Number(e.target.value)})}/></Field>
         <Field label="FI withdrawal rate %"><input className="input" type="number" step="0.05" min="0.5" value={scenarioForm.withdrawal_rate_pct} onChange={e=>setScenarioForm({...scenarioForm,withdrawal_rate_pct:Number(e.target.value)})}/></Field>
         <Field label="Monthly pension contribution"><input className="input" type="number" value={scenarioForm.pension_monthly_contribution} onChange={e=>setScenarioForm({...scenarioForm,pension_monthly_contribution:Number(e.target.value)})}/></Field>
@@ -304,7 +309,7 @@ export function Future() {
         <Field label="Override monthly expenses" hint="Leave blank to use Finance Tracker history."><input className="input" type="number" value={scenarioForm.baseline_expense_override??''} placeholder={String(Math.round(currentStart.monthlyExpenses))} onChange={e=>setScenarioForm({...scenarioForm,baseline_expense_override:e.target.value===''?null:Number(e.target.value)})}/></Field>
         <div className="full"><Field label="Description"><textarea className="textarea" value={scenarioForm.description??''} onChange={e=>setScenarioForm({...scenarioForm,description:e.target.value})}/></Field></div>
       </div>
-      <div className="future-toggle-grid"><label className="biometry-choice"><input type="checkbox" checked={!!scenarioForm.include_pensions_in_fi} onChange={e=>setScenarioForm({...scenarioForm,include_pensions_in_fi:e.target.checked?1:0})}/><Target size={17}/><div><strong>Count pensions toward FI</strong><span>Off by default because access may be age-restricted.</span></div></label><label className="biometry-choice"><input type="checkbox" checked={!!scenarioForm.auto_fund_deficits} onChange={e=>setScenarioForm({...scenarioForm,auto_fund_deficits:e.target.checked?1:0})}/><WalletCards size={17}/><div><strong>Fund cash deficits from investments</strong><span>Useful after retirement; prevents cash staying negative while investments exist.</span></div></label></div>
+      <div className="future-toggle-grid"><label className="biometry-choice"><input type="checkbox" checked={!!scenarioForm.include_pensions_in_fi} onChange={e=>setScenarioForm({...scenarioForm,include_pensions_in_fi:e.target.checked?1:0})}/><Target size={17}/><div><strong>Count pensions toward FI</strong><span>Off by default because access may be age-restricted.</span></div></label><label className="biometry-choice"><input type="checkbox" checked={!!scenarioForm.include_business_in_fi} onChange={e=>setScenarioForm({...scenarioForm,include_business_in_fi:e.target.checked?1:0})}/><Building2 size={17}/><div><strong>Count eligible BV equity toward FI</strong><span>Only use this if the business stake is realistically monetisable for retirement funding.</span></div></label><label className="biometry-choice"><input type="checkbox" checked={!!scenarioForm.auto_fund_deficits} onChange={e=>setScenarioForm({...scenarioForm,auto_fund_deficits:e.target.checked?1:0})}/><WalletCards size={17}/><div><strong>Fund cash deficits from investments</strong><span>Useful after retirement; prevents cash staying negative while investments exist.</span></div></label></div>
       <div className="modal-actions"><button className="btn" onClick={()=>setScenarioOpen(false)}>Cancel</button><button className="btn primary" disabled={busy} onClick={saveAssumptions}>{busy?'Saving…':'Save assumptions'}</button></div>
     </Modal>
 

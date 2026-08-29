@@ -6,6 +6,7 @@ import { KpiCard } from '../components/KpiCard';
 import { useProfileSession } from '../components/ProfileSession';
 import { execute, repo, select } from '../lib/db';
 import { derivePositions, financeTotals, monthlySeries } from '../lib/finance';
+import { currentBusinessProjectionContribution, householdBusinessProjectionContribution } from '../lib/consolidation';
 import { formatFiDate } from '../lib/future';
 import { householdMembers, sharedAssetNet, sharedAssets, syncActiveProfile } from '../lib/household';
 import { money, numberFmt } from '../lib/utils';
@@ -36,12 +37,13 @@ export function DecisionLab(){
 
   const buildStarts=useCallback(async()=>{
     const [accounts,securities,trades,properties,pensions,liabilities,debtors,transactions]=await Promise.all([repo.accounts(),repo.securities(),repo.trades(),repo.properties(),repo.pensions(),repo.liabilities(),repo.debtors(),select<Transaction>('SELECT * FROM transactions ORDER BY date,id')]) as [Account[],Security[],Trade[],Property[],Pension[],Liability[],Debtor[],Transaction[]];
-    const totals=financeTotals(accounts,derivePositions(securities,trades),properties,pensions,debtors,liabilities),flow=avgRecentCashflow(transactions),debtTotal=liabilities.reduce((s,l)=>s+Math.max(0,l.outstanding_balance),0);
+    const totals=financeTotals(accounts,derivePositions(securities,trades),properties,pensions,debtors,liabilities),flow=avgRecentCashflow(transactions),business=await currentBusinessProjectionContribution(),debtTotal=liabilities.reduce((s,l)=>s+Math.max(0,l.outstanding_balance),0);
     const debtRate=liabilities.reduce((s,l)=>s+Math.max(0,l.outstanding_balance)*Math.max(0,l.interest_pct),0)/Math.max(1,debtTotal);
-    setProfileStart({cash:totals.cash,investments:totals.investments,realEstate:totals.realEstate,pensions:totals.pensions,receivables:totals.debtors,liabilities:totals.liabilities,monthlyIncome:flow.income,monthlyExpenses:flow.expenses,existingDebtMonthlyPayment:liabilities.reduce((s,l)=>s+Math.max(0,l.monthly_payment),0),existingDebtInterestPct:debtRate||0,sourceLabel:`${profile.name} · trailing ${flow.months}-month cashflow`});
+    setProfileStart({cash:totals.cash,investments:totals.investments,realEstate:totals.realEstate,pensions:totals.pensions,receivables:totals.debtors,liabilities:totals.liabilities,monthlyIncome:flow.income,monthlyExpenses:flow.expenses,existingDebtMonthlyPayment:liabilities.reduce((s,l)=>s+Math.max(0,l.monthly_payment),0),existingDebtInterestPct:debtRate||0,businessEquity:business.equity,businessGrowthPct:business.growthPct,businessVolatilityPct:business.volatilityPct,businessFiEligiblePct:business.fiEligiblePct,sourceLabel:`${profile.name} · trailing ${flow.months}-month cashflow`});
     try{
       await syncActiveProfile(profile);const [members,shared]=await Promise.all([householdMembers(),sharedAssets()]);
-      setHouseholdStart({cash:members.reduce((s,m)=>s+m.cash,0)+shared.filter(x=>x.liquid||x.asset_class==='cash').reduce((s,a)=>s+sharedAssetNet(a),0),investments:members.reduce((s,m)=>s+m.investments,0)+shared.filter(x=>x.asset_class==='investments'&&!x.liquid).reduce((s,a)=>s+sharedAssetNet(a),0),realEstate:members.reduce((s,m)=>s+m.real_estate,0)+shared.filter(x=>['real_estate','other'].includes(x.asset_class)&&!x.liquid).reduce((s,a)=>s+sharedAssetNet(a),0),pensions:members.reduce((s,m)=>s+m.pensions,0)+shared.filter(x=>x.asset_class==='pensions').reduce((s,a)=>s+sharedAssetNet(a),0),receivables:members.reduce((s,m)=>s+m.debtors,0)+shared.filter(x=>x.asset_class==='receivables').reduce((s,a)=>s+sharedAssetNet(a),0),liabilities:members.reduce((s,m)=>s+m.liabilities,0)+shared.filter(x=>x.asset_class==='liability').reduce((s,a)=>s+Math.abs(sharedAssetNet(a)),0),monthlyIncome:members.reduce((s,m)=>s+m.monthly_income,0),monthlyExpenses:members.reduce((s,m)=>s+m.monthly_expenses,0),existingDebtMonthlyPayment:0,existingDebtInterestPct:0,sourceLabel:`Household · ${members.length} profile summaries + joint assets`});
+      const householdBusiness=householdBusinessProjectionContribution(members);
+      setHouseholdStart({cash:members.reduce((s,m)=>s+m.cash,0)+shared.filter(x=>x.liquid||x.asset_class==='cash').reduce((s,a)=>s+sharedAssetNet(a),0),investments:members.reduce((s,m)=>s+m.investments,0)+shared.filter(x=>x.asset_class==='investments'&&!x.liquid).reduce((s,a)=>s+sharedAssetNet(a),0),realEstate:members.reduce((s,m)=>s+m.real_estate,0)+shared.filter(x=>['real_estate','other'].includes(x.asset_class)&&!x.liquid).reduce((s,a)=>s+sharedAssetNet(a),0),pensions:members.reduce((s,m)=>s+m.pensions,0)+shared.filter(x=>x.asset_class==='pensions').reduce((s,a)=>s+sharedAssetNet(a),0),receivables:members.reduce((s,m)=>s+m.debtors,0)+shared.filter(x=>x.asset_class==='receivables').reduce((s,a)=>s+sharedAssetNet(a),0),liabilities:members.reduce((s,m)=>s+m.liabilities,0)+shared.filter(x=>x.asset_class==='liability').reduce((s,a)=>s+Math.abs(sharedAssetNet(a)),0),monthlyIncome:members.reduce((s,m)=>s+m.monthly_income,0),monthlyExpenses:members.reduce((s,m)=>s+m.monthly_expenses,0),existingDebtMonthlyPayment:0,existingDebtInterestPct:0,businessEquity:householdBusiness.equity,businessGrowthPct:householdBusiness.growthPct||4,businessVolatilityPct:householdBusiness.volatilityPct||22,businessFiEligiblePct:householdBusiness.fiEligiblePct,sourceLabel:`Household · ${members.length} profile summaries + joint assets`});
     }catch{setHouseholdStart(null)}
   },[profile]);
 
@@ -86,7 +88,7 @@ export function DecisionLab(){
           <div><ShieldCheck size={16}/><span><strong>Plan success</strong> · liquid assets do not become insolvent and net worth does not fall below the failure floor.</span></div>
           <div><Target size={16}/><span><strong>FI probability</strong> · cash + investments (and pensions if enabled in Future) reach annual spending ÷ withdrawal rate.</span></div>
           <div><TriangleAlert size={16}/><span><strong>Cash stress</strong> · monthly cash turns negative and requires portfolio funding at least once.</span></div>
-          <div><UsersRound size={16}/><span><strong>Household</strong> · uses the latest partner summary and shared assets when the Future scenario scope is Household.</span></div>
+          <div><UsersRound size={16}/><span><strong>Household</strong> · uses the latest partner summary, shared assets and included BV equity when the Future scenario scope is Household.</span></div><div><Activity size={16}/><span><strong>Business equity</strong> · follows the growth assumption from Future and the BV volatility configured in Consolidated Wealth.</span></div>
         </div>
       </Card>
     </div>

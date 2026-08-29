@@ -5,11 +5,11 @@ import type {
   Account, Budget, Category, CategorizationRule, Connection, Debtor, Dividend, InboxItem,
   InvestmentTarget, Liability, Pension, Property, RecurringExpense, Security, Snapshot, Trade,
   Transaction, InsurancePolicy, InsuranceClaim, FutureScenario, FutureEvent, FutureRiskSettings, DecisionLabRun,
-  BusinessEntity, BusinessTransaction, BusinessAsset, BusinessInvoice, BusinessAdvancePayment, BusinessTaxSettings,
+  BusinessEntity, BusinessTransaction, BusinessAsset, BusinessInvoice, BusinessAdvancePayment, BusinessTaxSettings, BusinessConsolidationSettings, BusinessBalanceItem,
 } from '../types';
 
 let dbPromise: Promise<Database> | null = null;
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 export async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -572,6 +572,39 @@ async function runMigrations(db: Database) {
     current = 8;
   }
 
+
+  if (current < 9) {
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_consolidation_settings (
+      entity_id INTEGER PRIMARY KEY,
+      ownership_pct REAL NOT NULL DEFAULT 100,
+      valuation_mode TEXT NOT NULL DEFAULT 'calculated',
+      manual_equity_value REAL NOT NULL DEFAULT 0,
+      include_in_personal INTEGER NOT NULL DEFAULT 1,
+      include_in_household INTEGER NOT NULL DEFAULT 1,
+      include_in_future INTEGER NOT NULL DEFAULT 1,
+      include_in_fi INTEGER NOT NULL DEFAULT 0,
+      future_growth_pct REAL NOT NULL DEFAULT 4,
+      future_volatility_pct REAL NOT NULL DEFAULT 22,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(entity_id) REFERENCES business_entities(id) ON DELETE CASCADE
+    )`);
+    await exec(db, `CREATE TABLE IF NOT EXISTS business_balance_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      asset_class TEXT NOT NULL DEFAULT 'investments',
+      value REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(entity_id) REFERENCES business_entities(id) ON DELETE CASCADE
+    )`);
+    await exec(db, `ALTER TABLE future_scenarios ADD COLUMN business_growth_pct REAL DEFAULT NULL`).catch(()=>{});
+    await exec(db, `ALTER TABLE future_scenarios ADD COLUMN include_business_in_fi INTEGER NOT NULL DEFAULT 0`).catch(()=>{});
+    await exec(db, `INSERT OR IGNORE INTO business_consolidation_settings(entity_id) SELECT id FROM business_entities`);
+    await exec(db, `INSERT INTO schema_migrations(version,name) VALUES (9,'V2.8 consolidated private + household + business wealth')`);
+    current = 9;
+  }
+
   await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES ('schema_version',$1)`, [String(current)]);
   await exec(db, `INSERT OR REPLACE INTO app_metadata(key,value,updated_at) VALUES ('schema_version',$1,CURRENT_TIMESTAMP)`, [String(current)]);
 }
@@ -740,7 +773,20 @@ async function seedFutureDefaults(db: Database, demo: boolean) {
 
 async function seedBusinessDemo(db: Database) {
   const seeded = await db.select<Array<{ value:string }>>(`SELECT value FROM settings WHERE key='business_demo_seed_version'`);
-  if (seeded[0]?.value === '1') return;
+  if (seeded[0]?.value === '2') return;
+  if (seeded[0]?.value === '1') {
+    const existing = await db.select<Array<{id:number}>>(`SELECT id FROM business_entities WHERE name='Aster Professional BV' ORDER BY id LIMIT 1`);
+    const id = existing[0]?.id;
+    if (id) {
+      await exec(db, `INSERT OR IGNORE INTO business_consolidation_settings(entity_id,ownership_pct,valuation_mode,include_in_personal,include_in_household,include_in_future,include_in_fi,future_growth_pct,future_volatility_pct) VALUES($1,100,'calculated',1,1,1,0,5,22)`, [id]);
+      const items = await db.select<Array<{id:number}>>('SELECT id FROM business_balance_items WHERE entity_id=$1 LIMIT 1',[id]);
+      if (!items.length) await exec(db, `INSERT INTO business_balance_items(entity_id,name,asset_class,value,notes) VALUES
+        ($1,'Treasury ETF portfolio','investments',42000,'Fictional market-value company investment for look-through demo'),
+        ($1,'Equipment finance balance','liability',12500,'Fictional non-ledger financing balance for look-through demo')`, [id]);
+    }
+    await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES('business_demo_seed_version','2')`);
+    return;
+  }
   const result = await exec(db, `INSERT INTO business_entities(name,company_type,enterprise_number,vat_number,incorporation_date,fiscal_year,currency,opening_cash,small_company,use_reduced_rate,advance_payment_exempt,director_remuneration,benefits_in_kind,notes)
     VALUES('Aster Professional BV','BV','BE 0123.456.789','BE0123456789','2024-01-15',2026,'EUR',96500,1,1,0,52000,6200,'Entirely fictional Belgian medical company for demonstrations.')`);
   const entityId = Number(result.lastInsertId);
@@ -775,7 +821,18 @@ async function seedBusinessDemo(db: Database) {
     ($1,'payable','Ledger Partners','LP-2608','2026-08-22','2026-09-21',1452,1452,'open','Fictional accountancy invoice')`, [entityId]);
   await exec(db, `INSERT INTO business_advance_payments(entity_id,tax_year,quarter,payment_date,amount,notes) VALUES
     ($1,2026,1,'2026-04-08',8500,'Demo VA1'),($1,2026,2,'2026-07-08',8500,'Demo VA2')`, [entityId]);
-  await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES('business_demo_seed_version','1')`);
+  await exec(db, `INSERT OR IGNORE INTO business_consolidation_settings(entity_id,ownership_pct,valuation_mode,include_in_personal,include_in_household,include_in_future,include_in_fi,future_growth_pct,future_volatility_pct) VALUES($1,100,'calculated',1,1,1,0,5,22)`, [entityId]);
+  await exec(db, `INSERT INTO business_balance_items(entity_id,name,asset_class,value,notes) VALUES
+    ($1,'Treasury ETF portfolio','investments',42000,'Fictional market-value company investment for look-through demo'),
+    ($1,'Equipment finance balance','liability',12500,'Fictional non-ledger financing balance for look-through demo')`, [entityId]);
+  await exec(db, `INSERT OR REPLACE INTO settings(key,value) VALUES('business_demo_seed_version','2')`);
+}
+
+export async function ensureProfileDatabase(profile: Profile): Promise<Database> {
+  try { await invoke('prepare_database_upgrade', { dbFilename: profile.dbFilename }); } catch (error) { console.warn('Pre-upgrade backup warning', error); }
+  const db = await Database.load(`sqlite:${profile.dbFilename}`);
+  await initialize(db, profile);
+  return db;
 }
 
 export async function select<T>(sql: string, bind: unknown[] = []): Promise<T[]> {
@@ -850,6 +907,12 @@ export const repo = {
     const rows=await select<BusinessTaxSettings>('SELECT * FROM business_tax_settings WHERE entity_id=$1 AND tax_year=$2',[entityId,taxYear]);
     return rows[0];
   },
+  async businessConsolidationSettings(entityId: number): Promise<BusinessConsolidationSettings> {
+    await execute(`INSERT OR IGNORE INTO business_consolidation_settings(entity_id) VALUES($1)`,[entityId]);
+    const rows=await select<BusinessConsolidationSettings>('SELECT * FROM business_consolidation_settings WHERE entity_id=$1',[entityId]);
+    return rows[0];
+  },
+  async businessBalanceItems(entityId: number): Promise<BusinessBalanceItem[]> { return select<BusinessBalanceItem>('SELECT * FROM business_balance_items WHERE entity_id=$1 ORDER BY asset_class,name',[entityId]); },
   async saveBusinessTaxSettings(x: BusinessTaxSettings) {
     await execute(`INSERT INTO business_tax_settings(entity_id,tax_year,standard_cit_pct,reduced_cit_pct,reduced_threshold,minimum_remuneration,bik_limit_pct,advance_surcharge_pct,advance_base_multiplier,va1_credit_pct,va2_credit_pct,va3_credit_pct,va4_credit_pct,ordinary_dividend_wht_pct,vvprbis_wht_pct,liquidation_reserve_creation_tax_pct,liquidation_reserve_wht_pct,updated_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,CURRENT_TIMESTAMP)
@@ -873,7 +936,7 @@ export async function exportAllData() {
   const tables = [
     'settings','categories','accounts','transactions','categorization_rules','import_batches','inbox','budgets',
     'recurring_expenses','securities','trades','dividends','investment_targets','price_history','properties','pensions',
-    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','future_scenarios','future_events','future_risk_settings','decision_lab_runs','business_entities','business_transactions','business_assets','business_invoices','business_advance_payments','business_tax_settings','schema_migrations','app_metadata','profile_info',
+    'liabilities','debtors','snapshots','cash_goals','deployment_rules','connections','insurance_policies','insurance_claims','future_scenarios','future_events','future_risk_settings','decision_lab_runs','business_entities','business_transactions','business_assets','business_invoices','business_advance_payments','business_tax_settings','business_consolidation_settings','business_balance_items','schema_migrations','app_metadata','profile_info',
   ];
   const output: Record<string, unknown[]> = {};
   for (const table of tables) output[table] = await select<Record<string, unknown>>(`SELECT * FROM ${table}`);

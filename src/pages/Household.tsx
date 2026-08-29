@@ -108,6 +108,7 @@ export function Household() {
       'Real estate':(personal?.real_estate??0)+(partner?.real_estate??0),
       Pensions:(personal?.pensions??0)+(partner?.pensions??0),
       Receivables:(personal?.debtors??0)+(partner?.debtors??0),
+      'Business equity':(personal?.business_equity??0)+(partner?.business_equity??0),
       Other:0,
     };
     for(const a of shared){
@@ -116,7 +117,7 @@ export function Household() {
       const label=a.asset_class==='cash'?'Cash':a.asset_class==='investments'?'Investments':a.asset_class==='real_estate'?'Real estate':a.asset_class==='pensions'?'Pensions':a.asset_class==='receivables'?'Receivables':'Other';
       values[label]+=net;
     }
-    const colors:Record<string,string>={Cash:'var(--accent)',Investments:'var(--navy)','Real estate':'var(--green)',Pensions:'var(--purple)',Receivables:'var(--amber)',Other:'var(--muted)'};
+    const colors:Record<string,string>={Cash:'var(--accent)',Investments:'var(--navy)','Real estate':'var(--green)',Pensions:'var(--purple)',Receivables:'var(--amber)','Business equity':'#7c6ee6',Other:'var(--muted)'};
     return Object.entries(values).filter(([,value])=>value>0).map(([name,value])=>({name,value,color:colors[name]}));
   },[personal,partner,shared]);
 

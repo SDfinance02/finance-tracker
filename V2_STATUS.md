@@ -1,6 +1,6 @@
 # Finance Tracker current status
 
-Current release: **V2.7.0**  
-Current database schema: **8**
+Current release: **V2.8.0**  
+Current database schema: **9**
 
-See `V2_7_STATUS.md` for the current feature summary.
+See `V2_8_STATUS.md` for the current feature summary.

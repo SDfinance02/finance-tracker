@@ -57,7 +57,7 @@ export function monthlyMortgagePayment(principal: number, annualInterestPct: num
 }
 
 export function startingNetWorth(start: FutureStartingPoint) {
-  return start.cash + start.investments + start.realEstate + start.pensions + start.receivables - start.liabilities;
+  return start.cash + start.investments + start.realEstate + start.pensions + start.receivables + start.businessEquity - start.liabilities;
 }
 
 interface MortgageState {
@@ -80,6 +80,7 @@ export function projectScenario(
   const cashRate = monthlyRate(scenario.cash_return_pct);
   const propertyRate = monthlyRate(scenario.property_growth_pct);
   const pensionRate = monthlyRate(scenario.pension_growth_pct);
+  const businessRate = monthlyRate(scenario.business_growth_pct ?? start.businessGrowthPct ?? 0);
   const incomeRate = monthlyRate(scenario.income_growth_pct);
   const expenseRate = monthlyRate((Number(scenario.inflation_pct) || 0) + (Number(scenario.expense_growth_pct) || 0));
 
@@ -87,6 +88,7 @@ export function projectScenario(
   let investments = Number(start.investments) || 0;
   let realEstate = Number(start.realEstate) || 0;
   let pensions = Number(start.pensions) || 0;
+  let businessEquity = Number(start.businessEquity) || 0;
   const receivables = Number(start.receivables) || 0;
   let baseLiabilities = Math.max(0, Number(start.liabilities) || 0);
   const baseIncome = scenario.baseline_income_override == null
@@ -115,6 +117,7 @@ export function projectScenario(
       investments *= 1 + investmentRate;
       realEstate *= 1 + propertyRate;
       pensions *= 1 + pensionRate;
+      businessEquity *= 1 + businessRate;
     }
 
     // Existing non-mortgage debt amortisation. The payment is assumed to already
@@ -210,8 +213,9 @@ export function projectScenario(
     minimumCash = Math.min(minimumCash, cash);
     const mortgageLiabilities = [...activeMortgages.values()].reduce((sum, mortgage) => sum + Math.max(0, mortgage.balance), 0);
     const liabilities = baseLiabilities + mortgageLiabilities;
-    const investableAssets = cash + investments + (scenario.include_pensions_in_fi ? pensions : 0);
-    const netWorth = cash + investments + realEstate + pensions + receivables - liabilities;
+    const eligibleBusiness = Math.max(0,businessEquity) * Math.max(0,Math.min(100,Number(start.businessFiEligiblePct)||0)) / 100;
+    const investableAssets = cash + investments + (scenario.include_pensions_in_fi ? pensions : 0) + (scenario.include_business_in_fi ? eligibleBusiness : 0);
+    const netWorth = cash + investments + realEstate + pensions + receivables + businessEquity - liabilities;
     const annualExpenses = Math.max(0, expenses * 12);
     const requiredFiAssets = scenario.withdrawal_rate_pct > 0
       ? annualExpenses / (scenario.withdrawal_rate_pct / 100)
@@ -220,7 +224,7 @@ export function projectScenario(
 
     points.push({
       date: `${month}-01`, monthIndex: i, cash, investments, realEstate, pensions, receivables,
-      liabilities, investableAssets, netWorth, income, expenses, savings,
+      liabilities, businessEquity, investableAssets, netWorth, income, expenses, savings,
     });
   }
 

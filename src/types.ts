@@ -146,6 +146,11 @@ export interface HouseholdMemberSummary {
   pensions: number;
   debtors: number;
   liabilities: number;
+  business_equity: number;
+  business_future_equity: number;
+  business_growth_pct: number;
+  business_volatility_pct: number;
+  business_fi_eligible_pct: number;
   net_worth: number;
   monthly_income: number;
   monthly_expenses: number;
@@ -214,6 +219,8 @@ export interface FutureScenario {
   baseline_expense_override?: number | null;
   pension_monthly_contribution: number;
   auto_fund_deficits: number;
+  business_growth_pct: number | null;
+  include_business_in_fi: number;
   created_at: string;
   updated_at: string;
 }
@@ -244,6 +251,10 @@ export interface FutureStartingPoint {
   monthlyExpenses: number;
   existingDebtMonthlyPayment: number;
   existingDebtInterestPct: number;
+  businessEquity: number;
+  businessGrowthPct: number;
+  businessVolatilityPct: number;
+  businessFiEligiblePct: number;
   sourceLabel: string;
 }
 
@@ -256,6 +267,7 @@ export interface FutureProjectionPoint {
   pensions: number;
   receivables: number;
   liabilities: number;
+  businessEquity: number;
   investableAssets: number;
   netWorth: number;
   income: number;
@@ -437,4 +449,46 @@ export interface BusinessTaxSettings {
   liquidation_reserve_creation_tax_pct: number;
   liquidation_reserve_wht_pct: number;
   updated_at?: string;
+}
+
+
+export interface BusinessConsolidationSettings {
+  entity_id: number;
+  ownership_pct: number;
+  valuation_mode: string;
+  manual_equity_value: number;
+  include_in_personal: number;
+  include_in_household: number;
+  include_in_future: number;
+  include_in_fi: number;
+  future_growth_pct: number;
+  future_volatility_pct: number;
+  updated_at?: string;
+}
+
+export interface BusinessBalanceItem {
+  id: number;
+  entity_id: number;
+  name: string;
+  asset_class: string;
+  value: number;
+  notes?: string | null;
+  updated_at: string;
+}
+
+export interface BusinessValuationBreakdown {
+  cash: number;
+  receivables: number;
+  fixedAssets: number;
+  investments: number;
+  realEstate: number;
+  otherAssets: number;
+  payables: number;
+  taxLiability: number;
+  otherLiabilities: number;
+  grossAssets: number;
+  liabilities: number;
+  calculatedEquity: number;
+  equity: number;
+  ownerEquity: number;
 }

@@ -422,3 +422,13 @@ npm run tauri:dev
 ```
 
 or the built `.app`, not with plain `npm run dev` in a normal browser.
+
+---
+
+## V2.7 — My BV
+
+V2.7 adds a separate Belgian BV management ledger with management P&L, cash, invoices, company assets, editable corporate-tax assumptions, advance-payment planning and an extraction comparison lab. See `UPGRADE_TO_V2_7.md`.
+
+## V2.8 — Consolidated Wealth
+
+V2.8 connects private wealth, Household and My BV. It adds ownership-aware company equity, an Equity/Look-through consolidated view and integrates included BV equity into Dashboard, Household, Future and Decision Lab without double counting. See `UPGRADE_TO_V2_8.md`.

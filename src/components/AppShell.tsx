@@ -4,7 +4,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Landmark, ReceiptText, Inbox, PiggyBank, LineChart, Building2, ShieldCheck, UsersRound,
   BarChart3, Calculator, PlugZap, Settings, Search, Moon, Sun, RefreshCw, WalletCards, Target, DownloadCloud, Umbrella,
-  LockKeyhole, UserRound, Sparkles, Rocket, Dices, BriefcaseBusiness,
+  LockKeyhole, UserRound, Sparkles, Rocket, Dices, BriefcaseBusiness, Layers3,
 } from 'lucide-react';
 import { Modal } from './Modal';
 import { repo } from '../lib/db';
@@ -17,6 +17,7 @@ const nav = [
   ['Future', '/future', Rocket],
   ['Decision Lab', '/decision-lab', Dices],
   ['My BV', '/business', BriefcaseBusiness],
+  ['Consolidated wealth', '/consolidation', Layers3],
   ['Accounts', '/accounts', WalletCards],
   ['Transactions', '/transactions', ReceiptText],
   ['Inbox', '/inbox', Inbox],
@@ -38,7 +39,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [version, setVersion] = useState('2.7.0');
+  const [version, setVersion] = useState('2.8.0');
   const [updateVersion, setUpdateVersion] = useState<string|null>(null);
 
   useEffect(() => {

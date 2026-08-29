@@ -1,10 +1,13 @@
 import Database from '@tauri-apps/plugin-sql';
 import { getActiveProfile, type Profile } from './profiles';
+import { ensureProfileDatabase } from './db';
 import { derivePositions, financeTotals, monthlyCashflow, monthlySeries } from './finance';
+import { businessValuation, defaultBusinessConsolidationSettings } from './consolidation';
 import { monthIso, todayIso } from './utils';
 import type {
   Account, Debtor, HouseholdMemberSummary, HouseholdMonthlyCashflow, HouseholdSharedAsset,
   HouseholdSnapshot, Liability, Pension, Property, Security, Snapshot, Trade, Transaction,
+  BusinessEntity, BusinessTransaction, BusinessAsset, BusinessInvoice, BusinessAdvancePayment, BusinessTaxSettings, BusinessConsolidationSettings, BusinessBalanceItem,
 } from '../types';
 
 let householdDbPromise: Promise<Database> | null = null;
@@ -59,6 +62,11 @@ async function initializeHouseholdDb(db: Database, demo: boolean) {
     pensions REAL NOT NULL DEFAULT 0,
     debtors REAL NOT NULL DEFAULT 0,
     liabilities REAL NOT NULL DEFAULT 0,
+    business_equity REAL NOT NULL DEFAULT 0,
+    business_future_equity REAL NOT NULL DEFAULT 0,
+    business_growth_pct REAL NOT NULL DEFAULT 0,
+    business_volatility_pct REAL NOT NULL DEFAULT 0,
+    business_fi_eligible_pct REAL NOT NULL DEFAULT 0,
     net_worth REAL NOT NULL DEFAULT 0,
     monthly_income REAL NOT NULL DEFAULT 0,
     monthly_expenses REAL NOT NULL DEFAULT 0,
@@ -82,6 +90,7 @@ async function initializeHouseholdDb(db: Database, demo: boolean) {
     pensions REAL NOT NULL DEFAULT 0,
     debtors REAL NOT NULL DEFAULT 0,
     liabilities REAL NOT NULL DEFAULT 0,
+    business_equity REAL NOT NULL DEFAULT 0,
     net_worth REAL NOT NULL DEFAULT 0,
     PRIMARY KEY(profile_id, date)
   )`);
@@ -111,6 +120,12 @@ async function initializeHouseholdDb(db: Database, demo: boolean) {
     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
   await exec(db, `INSERT OR IGNORE INTO household_schema_migrations(version,name) VALUES(1,'V2.3 household foundation')`);
+  await exec(db, `ALTER TABLE household_member_summary ADD COLUMN business_equity REAL NOT NULL DEFAULT 0`).catch(()=>{});
+  await exec(db, `ALTER TABLE household_member_summary ADD COLUMN business_future_equity REAL NOT NULL DEFAULT 0`).catch(()=>{});
+  await exec(db, `ALTER TABLE household_member_summary ADD COLUMN business_growth_pct REAL NOT NULL DEFAULT 0`).catch(()=>{});
+  await exec(db, `ALTER TABLE household_member_summary ADD COLUMN business_volatility_pct REAL NOT NULL DEFAULT 0`).catch(()=>{});
+  await exec(db, `ALTER TABLE household_member_summary ADD COLUMN business_fi_eligible_pct REAL NOT NULL DEFAULT 0`).catch(()=>{});
+  await exec(db, `INSERT OR IGNORE INTO household_schema_migrations(version,name) VALUES(2,'V2.8 business equity consolidation and projection metadata')`);
   if (demo) await seedDemoHousehold(db);
 }
 
@@ -132,6 +147,33 @@ async function aggregateProfile(db: Database, profile: Profile): Promise<Profile
   const snapshots = await select<Snapshot>(db, 'SELECT * FROM snapshots ORDER BY date');
   const positions = derivePositions(securities, trades);
   const totals = financeTotals(accounts, positions, properties, pensions, debtors, liabilities);
+  let businessEquity = 0;
+  let businessFutureEquity = 0, businessFutureWeight = 0, weightedGrowth = 0, weightedVolatility = 0, fiEligible = 0;
+  try {
+    const entities = await select<BusinessEntity>(db, 'SELECT * FROM business_entities ORDER BY id');
+    for (const entity of entities) {
+      const txs = await select<BusinessTransaction>(db, 'SELECT * FROM business_transactions WHERE entity_id=$1', [entity.id]);
+      const bAssets = await select<BusinessAsset>(db, 'SELECT * FROM business_assets WHERE entity_id=$1', [entity.id]);
+      const invoices = await select<BusinessInvoice>(db, 'SELECT * FROM business_invoices WHERE entity_id=$1', [entity.id]);
+      const payments = await select<BusinessAdvancePayment>(db, 'SELECT * FROM business_advance_payments WHERE entity_id=$1 AND tax_year=$2', [entity.id, entity.fiscal_year]);
+      const taxes = await select<BusinessTaxSettings>(db, 'SELECT * FROM business_tax_settings WHERE entity_id=$1 AND tax_year=$2', [entity.id, entity.fiscal_year]);
+      const cons = await select<BusinessConsolidationSettings>(db, 'SELECT * FROM business_consolidation_settings WHERE entity_id=$1', [entity.id]);
+      const items = await select<BusinessBalanceItem>(db, 'SELECT * FROM business_balance_items WHERE entity_id=$1', [entity.id]);
+      const settings = cons[0] ?? defaultBusinessConsolidationSettings(entity.id);
+      const taxSettings = taxes[0];
+      if (!taxSettings) continue;
+      const ownerEquity = businessValuation(entity,txs,bAssets,invoices,payments,taxSettings,settings,items).ownerEquity;
+      if (settings.include_in_household) businessEquity += ownerEquity;
+      if (settings.include_in_future) {
+        businessFutureEquity += ownerEquity;
+        const w = Math.abs(ownerEquity);
+        businessFutureWeight += w;
+        weightedGrowth += w * Number(settings.future_growth_pct || 0);
+        weightedVolatility += w * Number(settings.future_volatility_pct || 0);
+        if (settings.include_in_fi) fiEligible += Math.max(0, ownerEquity);
+      }
+    }
+  } catch (error) { console.warn('Business consolidation unavailable for household aggregate', error); }
   const current = monthlyCashflow(transactions, monthIso());
   const syncedAt = new Date().toISOString();
   const summary: HouseholdMemberSummary = {
@@ -145,7 +187,12 @@ async function aggregateProfile(db: Database, profile: Profile): Promise<Profile
     pensions: totals.pensions,
     debtors: totals.debtors,
     liabilities: totals.liabilities,
-    net_worth: totals.netWorth,
+    business_equity: businessEquity,
+    business_future_equity: businessFutureEquity,
+    business_growth_pct: businessFutureWeight ? weightedGrowth / businessFutureWeight : 0,
+    business_volatility_pct: businessFutureWeight ? weightedVolatility / businessFutureWeight : 0,
+    business_fi_eligible_pct: Math.max(0,businessFutureEquity) ? Math.max(0,Math.min(100,fiEligible/Math.max(0,businessFutureEquity)*100)) : 0,
+    net_worth: totals.netWorth + businessEquity,
     monthly_income: current.income,
     monthly_expenses: current.expenses,
     monthly_savings: current.savings,
@@ -167,10 +214,10 @@ async function cacheAggregate(hdb: Database, aggregate: ProfileAggregate) {
     VALUES($1,$2,$3,$4,$5)
     ON CONFLICT(profile_id) DO UPDATE SET profile_name=excluded.profile_name,profile_kind=excluded.profile_kind,db_filename=excluded.db_filename,last_synced_at=excluded.last_synced_at`,
     [s.profile_id,s.profile_name,s.profile_kind,s.db_filename,s.synced_at]);
-  await exec(hdb, `INSERT INTO household_member_summary(profile_id,profile_name,profile_kind,db_filename,cash,investments,real_estate,pensions,debtors,liabilities,net_worth,monthly_income,monthly_expenses,monthly_savings,synced_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-    ON CONFLICT(profile_id) DO UPDATE SET profile_name=excluded.profile_name,profile_kind=excluded.profile_kind,db_filename=excluded.db_filename,cash=excluded.cash,investments=excluded.investments,real_estate=excluded.real_estate,pensions=excluded.pensions,debtors=excluded.debtors,liabilities=excluded.liabilities,net_worth=excluded.net_worth,monthly_income=excluded.monthly_income,monthly_expenses=excluded.monthly_expenses,monthly_savings=excluded.monthly_savings,synced_at=excluded.synced_at`,
-    [s.profile_id,s.profile_name,s.profile_kind,s.db_filename,s.cash,s.investments,s.real_estate,s.pensions,s.debtors,s.liabilities,s.net_worth,s.monthly_income,s.monthly_expenses,s.monthly_savings,s.synced_at]);
+  await exec(hdb, `INSERT INTO household_member_summary(profile_id,profile_name,profile_kind,db_filename,cash,investments,real_estate,pensions,debtors,liabilities,business_equity,business_future_equity,business_growth_pct,business_volatility_pct,business_fi_eligible_pct,net_worth,monthly_income,monthly_expenses,monthly_savings,synced_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+    ON CONFLICT(profile_id) DO UPDATE SET profile_name=excluded.profile_name,profile_kind=excluded.profile_kind,db_filename=excluded.db_filename,cash=excluded.cash,investments=excluded.investments,real_estate=excluded.real_estate,pensions=excluded.pensions,debtors=excluded.debtors,liabilities=excluded.liabilities,business_equity=excluded.business_equity,business_future_equity=excluded.business_future_equity,business_growth_pct=excluded.business_growth_pct,business_volatility_pct=excluded.business_volatility_pct,business_fi_eligible_pct=excluded.business_fi_eligible_pct,net_worth=excluded.net_worth,monthly_income=excluded.monthly_income,monthly_expenses=excluded.monthly_expenses,monthly_savings=excluded.monthly_savings,synced_at=excluded.synced_at`,
+    [s.profile_id,s.profile_name,s.profile_kind,s.db_filename,s.cash,s.investments,s.real_estate,s.pensions,s.debtors,s.liabilities,s.business_equity,s.business_future_equity,s.business_growth_pct,s.business_volatility_pct,s.business_fi_eligible_pct,s.net_worth,s.monthly_income,s.monthly_expenses,s.monthly_savings,s.synced_at]);
   await exec(hdb, 'DELETE FROM household_member_cashflow WHERE profile_id=$1', [s.profile_id]);
   for (const row of aggregate.cashflow) {
     await exec(hdb, `INSERT INTO household_member_cashflow(profile_id,month,income,expenses,savings) VALUES($1,$2,$3,$4,$5)`, [row.profile_id,row.month,row.income,row.expenses,row.savings]);
@@ -188,14 +235,14 @@ export async function syncActiveProfile(profile: Profile) {
     await seedDemoHousehold(hdb);
     return;
   }
-  const activeDb = await Database.load(`sqlite:${profile.dbFilename}`);
+  const activeDb = await ensureProfileDatabase(profile);
   const aggregate = await aggregateProfile(activeDb, profile);
   await cacheAggregate(hdb, aggregate);
 }
 
 export async function syncAuthorizedProfile(profile: Profile) {
   const hdb = await getHouseholdDb();
-  const db = await Database.load(`sqlite:${profile.dbFilename}`);
+  const db = await ensureProfileDatabase(profile);
   const tables = await select<{name:string}>(db, `SELECT name FROM sqlite_master WHERE type='table' AND name='accounts'`);
   if (!tables.length) throw new Error(`${profile.name} has no initialized finance database yet. Open that profile once before sharing household totals.`);
   const aggregate = await aggregateProfile(db, profile);
@@ -271,7 +318,7 @@ export async function clearMemberCache(profileId: string) {
 
 async function seedDemoHousehold(db: Database) {
   const seeded = await select<{value:string}>(db, `SELECT value FROM household_settings WHERE key='demo_seed_version'`);
-  if (seeded[0]?.value === '1') return;
+  if (seeded[0]?.value === '3') return;
   await exec(db, 'DELETE FROM household_member_summary');
   await exec(db, 'DELETE FROM household_member_cashflow');
   await exec(db, 'DELETE FROM household_member_snapshots');
@@ -280,12 +327,12 @@ async function seedDemoHousehold(db: Database) {
 
   const now = new Date().toISOString();
   const demoMembers: HouseholdMemberSummary[] = [
-    {profile_id:'demo',profile_name:'Alex',profile_kind:'personal',db_filename:'finance-demo.db',cash:47020,investments:214600,real_estate:0,pensions:39400,debtors:0,liabilities:12500,net_worth:288520,monthly_income:6120,monthly_expenses:3130,monthly_savings:2990,synced_at:now},
-    {profile_id:'demo-partner',profile_name:'Jamie',profile_kind:'partner',db_filename:'demo-partner',cash:31800,investments:87600,real_estate:0,pensions:28750,debtors:0,liabilities:6200,net_worth:141950,monthly_income:4880,monthly_expenses:2640,monthly_savings:2240,synced_at:now},
+    {profile_id:'demo',profile_name:'Alex',profile_kind:'personal',db_filename:'finance-demo.db',cash:47020,investments:214600,real_estate:0,pensions:39400,debtors:0,liabilities:12500,business_equity:118000,business_future_equity:118000,business_growth_pct:5,business_volatility_pct:22,business_fi_eligible_pct:0,net_worth:406520,monthly_income:6120,monthly_expenses:3130,monthly_savings:2990,synced_at:now},
+    {profile_id:'demo-partner',profile_name:'Jamie',profile_kind:'partner',db_filename:'demo-partner',cash:31800,investments:87600,real_estate:0,pensions:28750,debtors:0,liabilities:6200,business_equity:0,business_future_equity:0,business_growth_pct:0,business_volatility_pct:0,business_fi_eligible_pct:0,net_worth:141950,monthly_income:4880,monthly_expenses:2640,monthly_savings:2240,synced_at:now},
   ];
   for (const s of demoMembers) {
-    await exec(db, `INSERT INTO household_member_summary(profile_id,profile_name,profile_kind,db_filename,cash,investments,real_estate,pensions,debtors,liabilities,net_worth,monthly_income,monthly_expenses,monthly_savings,synced_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [s.profile_id,s.profile_name,s.profile_kind,s.db_filename,s.cash,s.investments,s.real_estate,s.pensions,s.debtors,s.liabilities,s.net_worth,s.monthly_income,s.monthly_expenses,s.monthly_savings,s.synced_at]);
+    await exec(db, `INSERT INTO household_member_summary(profile_id,profile_name,profile_kind,db_filename,cash,investments,real_estate,pensions,debtors,liabilities,business_equity,business_future_equity,business_growth_pct,business_volatility_pct,business_fi_eligible_pct,net_worth,monthly_income,monthly_expenses,monthly_savings,synced_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, [s.profile_id,s.profile_name,s.profile_kind,s.db_filename,s.cash,s.investments,s.real_estate,s.pensions,s.debtors,s.liabilities,s.business_equity,s.business_future_equity,s.business_growth_pct,s.business_volatility_pct,s.business_fi_eligible_pct,s.net_worth,s.monthly_income,s.monthly_expenses,s.monthly_savings,s.synced_at]);
   }
   await exec(db, `INSERT INTO household_shared_assets(asset_class,name,current_value,debt_value,personal_pct,partner_pct,liquid,notes) VALUES
     ('real_estate','Family home',680000,286000,50,50,0,'Fictional shared home'),
@@ -309,5 +356,5 @@ async function seedDemoHousehold(db: Database) {
     const shared=360000+i*3300;
     await exec(db, `INSERT INTO household_snapshots(date,personal_nw,partner_nw,shared_nw,total_nw) VALUES($1,$2,$3,$4,$5)`, [`${m}-28`,personal,partner,shared,personal+partner+shared]);
   }
-  await exec(db, `INSERT OR REPLACE INTO household_settings(key,value) VALUES('demo_seed_version','1')`);
+  await exec(db, `INSERT OR REPLACE INTO household_settings(key,value) VALUES('demo_seed_version','3')`);
 }

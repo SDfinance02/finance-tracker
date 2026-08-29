@@ -5,6 +5,7 @@ import { Card, EmptyState, PageHeader } from '../components/Common';
 import { KpiCard } from '../components/KpiCard';
 import { execute, repo } from '../lib/db';
 import { derivePositions, financeTotals, monthlyCashflow } from '../lib/finance';
+import { currentBusinessProjectionContribution } from '../lib/consolidation';
 import { updateMarketData } from '../lib/market';
 import { money, monthIso, percent, todayIso } from '../lib/utils';
 import type { Account, Debtor, Liability, Pension, Position, Property, Security, Snapshot, Transaction } from '../types';
@@ -21,12 +22,13 @@ export function Dashboard() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [updating, setUpdating] = useState(false);
   const [status, setStatus] = useState('');
+  const [businessEquity,setBusinessEquity]=useState(0);
 
   const load = useCallback(async () => {
-    const [a, s, t, p, pe, l, d, tx, sn] = await Promise.all([
-      repo.accounts(), repo.securities(), repo.trades(), repo.properties(), repo.pensions(), repo.liabilities(), repo.debtors(), repo.transactions(), repo.snapshots(),
+    const [a, s, t, p, pe, l, d, tx, sn, business] = await Promise.all([
+      repo.accounts(), repo.securities(), repo.trades(), repo.properties(), repo.pensions(), repo.liabilities(), repo.debtors(), repo.transactions(), repo.snapshots(), currentBusinessProjectionContribution('personal'),
     ]);
-    setAccounts(a); setSecurities(s); setPositions(derivePositions(s, t)); setProperties(p); setPensions(pe); setLiabilities(l); setDebtors(d); setTransactions(tx); setSnapshots(sn);
+    setBusinessEquity(business.equity); setAccounts(a); setSecurities(s); setPositions(derivePositions(s, t)); setProperties(p); setPensions(pe); setLiabilities(l); setDebtors(d); setTransactions(tx); setSnapshots(sn);
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -39,7 +41,8 @@ export function Dashboard() {
     { name: 'Real estate', value: Math.max(0, totals.realEstate), color: 'var(--green)' },
     { name: 'Pensions', value: Math.max(0, totals.pensions), color: 'var(--purple)' },
     { name: 'Receivables', value: Math.max(0, totals.debtors), color: 'var(--amber)' },
-  ].filter((x) => x.value > 0), [totals]);
+    { name: 'Business equity', value: Math.max(0, businessEquity), color: '#7c6ee6' },
+  ].filter((x) => x.value > 0), [totals,businessEquity]);
   const allocationTotal = allocation.reduce((s, x) => s + x.value, 0);
 
   const saveSnapshot = async () => {
@@ -67,7 +70,7 @@ export function Dashboard() {
     </>} />
     {status && <div className="notice info" style={{marginBottom: 14}}>{status}</div>}
     <div className="kpi-grid">
-      <KpiCard label="Net worth" value={money(totals.netWorth)} sub="Assets minus liabilities" icon={<Landmark size={16}/>} />
+      <KpiCard label="Consolidated net worth" value={money(totals.netWorth+businessEquity)} sub={businessEquity?`Private ${money(totals.netWorth)} + owned BV equity`:'Assets minus liabilities'} icon={<Landmark size={16}/>} />
       <KpiCard label="Liquid net worth" value={money(totals.cash + totals.investments)} sub="Cash + marketable investments" icon={<WalletCards size={16}/>} />
       <KpiCard label="Portfolio value" value={money(totals.investments)} sub={`${positions.filter(p=>p.quantity>0).length} open positions`} icon={<BriefcaseBusiness size={16}/>} />
       <KpiCard label="Monthly cashflow" value={money(cashflow.savings)} sub={`${monthIso()} · ${percent(cashflow.savingsRate)} savings rate`} tone={cashflow.savings >= 0 ? 'positive':'negative'} icon={cashflow.savings >= 0 ? <ArrowUpRight size={16}/> : <ArrowDownRight size={16}/>} />
@@ -76,7 +79,7 @@ export function Dashboard() {
     </div>
 
     <div className="grid" style={{gridTemplateColumns:'minmax(0,1.7fr) minmax(310px,.8fr)', marginBottom:16}}>
-      <Card title="Net worth evolution" subtitle="Saved snapshots form your historical timeline.">
+      <Card title="Private net worth evolution" subtitle="Saved personal-ledger snapshots; BV equity is shown separately in consolidated wealth.">
         {snapshots.length < 2 ? <EmptyState title="No history yet" description="Save snapshots periodically; V2 will turn them into a net-worth timeline."/> :
           <div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><AreaChart data={snapshots} margin={{left:5,right:10,top:10,bottom:0}}>
             <defs><linearGradient id="nwfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--accent)" stopOpacity={.22}/><stop offset="100%" stopColor="var(--accent)" stopOpacity={0}/></linearGradient></defs>
@@ -93,7 +96,7 @@ export function Dashboard() {
     <div className="grid two">
       <Card title="Balance sheet">
         {[
-          ['Cash', totals.cash], ['Investments', totals.investments], ['Real estate equity', totals.realEstate], ['Pensions', totals.pensions], ['Receivables', totals.debtors], ['Liabilities', -totals.liabilities],
+          ['Cash', totals.cash], ['Investments', totals.investments], ['Real estate equity', totals.realEstate], ['Pensions', totals.pensions], ['Receivables', totals.debtors], ['Business equity', businessEquity], ['Liabilities', -totals.liabilities],
         ].map(([label,value])=><div className="metric-row" key={String(label)}><span>{label}</span><strong className={Number(value)<0?'money-negative':''}>{money(Number(value))}</strong></div>)}
       </Card>
       <Card title="Recent cashflow" actions={<span className="badge blue">{monthIso()}</span>}>

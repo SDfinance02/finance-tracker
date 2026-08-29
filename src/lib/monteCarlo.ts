@@ -67,7 +67,7 @@ interface SinglePathResult {
 function simulatePath(start: FutureStartingPoint, scenario: FutureScenario, events: FutureEvent[], settings: FutureRiskSettings, seed: number, startDate: Date): SinglePathResult {
   const rng = mulberry32(seed);
   const horizonMonths = Math.max(12, Math.round(Math.max(1, Number(scenario.horizon_years) || 1) * 12));
-  let cash=Number(start.cash)||0, investments=Number(start.investments)||0, realEstate=Number(start.realEstate)||0, pensions=Number(start.pensions)||0;
+  let cash=Number(start.cash)||0, investments=Number(start.investments)||0, realEstate=Number(start.realEstate)||0, pensions=Number(start.pensions)||0, businessEquity=Number(start.businessEquity)||0;
   const receivables=Number(start.receivables)||0;
   let baseLiabilities=Math.max(0,Number(start.liabilities)||0);
   const baseIncome=scenario.baseline_income_override==null?Number(start.monthlyIncome)||0:Number(scenario.baseline_income_override)||0;
@@ -84,13 +84,15 @@ function simulatePath(start: FutureStartingPoint, scenario: FutureScenario, even
     const date=addMonths(startMonthDate,i), month=monthKey(date);
     let inflationStep=1;
     if(i>0){
-      const zInv=normal(rng), zCash=normal(rng), zPropRaw=normal(rng), zPenRaw=normal(rng), zInfl=normal(rng);
+      const zInv=normal(rng), zCash=normal(rng), zPropRaw=normal(rng), zPenRaw=normal(rng), zBusinessRaw=normal(rng), zInfl=normal(rng);
       const zProp=investPropertyRho*zInv+Math.sqrt(1-investPropertyRho**2)*zPropRaw;
       const zPen=investPensionRho*zInv+Math.sqrt(1-investPensionRho**2)*zPenRaw;
+      const zBusiness=.5*zInv+Math.sqrt(.75)*zBusinessRaw;
       cash*=stochasticMonthlyFactor(scenario.cash_return_pct,settings.cash_volatility_pct,zCash);
       investments*=stochasticMonthlyFactor(scenario.annual_return_pct,settings.investment_volatility_pct,zInv);
       realEstate*=stochasticMonthlyFactor(scenario.property_growth_pct,settings.property_volatility_pct,zProp);
       pensions*=stochasticMonthlyFactor(scenario.pension_growth_pct,settings.pension_volatility_pct,zPen);
+      businessEquity*=stochasticMonthlyFactor(scenario.business_growth_pct ?? start.businessGrowthPct ?? 0,start.businessVolatilityPct||22,zBusiness);
       if(i===Math.max(1,Number(settings.early_shock_month)||1) && Number(settings.early_shock_pct)<0) investments*=Math.max(0,1+Number(settings.early_shock_pct)/100);
       inflationStep=stochasticMonthlyFactor(scenario.inflation_pct,settings.inflation_volatility_pct,zInfl);
     }
@@ -144,7 +146,8 @@ function simulatePath(start: FutureStartingPoint, scenario: FutureScenario, even
       if(scenario.auto_fund_deficits){const need=-cash,w=Math.min(Math.max(0,investments),need);investments-=w;cash+=w;}
     }
     const mortgages=[...activeMortgages.values()].reduce((s,m)=>s+Math.max(0,m.balance),0), liabilities=baseLiabilities+mortgages;
-    const investable=cash+investments+(scenario.include_pensions_in_fi?pensions:0), netWorth=cash+investments+realEstate+pensions+receivables-liabilities;
+    const eligibleBusiness=Math.max(0,businessEquity)*Math.max(0,Math.min(100,Number(start.businessFiEligiblePct)||0))/100;
+    const investable=cash+investments+(scenario.include_pensions_in_fi?pensions:0)+(scenario.include_business_in_fi?eligibleBusiness:0), netWorth=cash+investments+realEstate+pensions+receivables+businessEquity-liabilities;
     minimumLiquid=Math.min(minimumLiquid,cash+investments);
     if(cash+investments<0||netWorth<Number(settings.failure_floor||0)) planFailed=true;
     const required=scenario.withdrawal_rate_pct>0?Math.max(0,expenses*12)/(scenario.withdrawal_rate_pct/100):Infinity;

@@ -45,7 +45,7 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: 'Finance Tracker v__VERSION__'
-          releaseBody: 'Finance Tracker v2.7 adds My BV: a separate Belgian company ledger, management dashboard, receivables/payables, company assets, VAT estimate, corporate-tax planning, advance payments and a profit-extraction lab for salary/dividend/VVPR-bis/liquidation-reserve comparisons. Existing local finance data is preserved.'
+          releaseBody: 'Finance Tracker v2.8 adds Consolidated Wealth: ownership-aware BV equity, Equity and Look-through views, business integration in Dashboard and Household, and BV-aware Future / Decision Lab projections with double-count protection. Existing local finance data is preserved.'
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
